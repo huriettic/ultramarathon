@@ -152,6 +152,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8a20853fe1eb31b4a9bc8eeeb8217365, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  Directory: /Maps/Tutorial.sceA
+  LevelNumber: 0
   Cam: {fileID: 0}
   Player: {fileID: 0}
   PlanePos: []

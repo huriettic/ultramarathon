@@ -10,6 +10,10 @@ namespace Portals
     {
         private bool Ready = false;
 
+        public string Directory;
+
+        public int LevelNumber;
+
         public Camera Cam;
 
         public Level level;
@@ -53,12 +57,12 @@ namespace Portals
             MapFile map = new MapFile();
 
             // Change name to load a different map
-            map.Load(Application.dataPath + "/Maps/Tutorial.sceA");
+            map.Load(Application.dataPath + Directory);
 
             level = new Level();
 
             // Change the map directory number if the map has more than one level 
-            level.Load(map.Directory[0]);
+            level.Load(map.Directory[LevelNumber]);
 
             GameObject Polygons = new GameObject("Polygons");
 
