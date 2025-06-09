@@ -22,6 +22,8 @@ namespace Portals
 
         public Vector4[] PlanePos;
 
+        public RenderParams rp;
+
         public MaterialPropertyBlock BlockOne;
 
         public List<Plane> Planes = new List<Plane>(6);
@@ -52,7 +54,9 @@ namespace Portals
 
             PlanePos = new Vector4[20];
 
-            BlockOne = new MaterialPropertyBlock();
+            rp = new RenderParams();
+
+            rp.matProps = new MaterialPropertyBlock();
 
             MapFile map = new MapFile();
 
@@ -752,7 +756,7 @@ namespace Portals
         {
             if (Ready == true)
             {
-                Player.GetComponent<Move>().Controller();
+                Player.GetComponent<Move>().PlayerInput();
 
                 CheckSector();
 
@@ -774,7 +778,7 @@ namespace Portals
         {
             Vector3 CamPoint = Cam.transform.position;
 
-            BlockOne.SetInt("_Int", APlanes.Count);
+            rp.matProps.SetInt("_Int", APlanes.Count);
 
             Array.Clear(PlanePos, 0, APlanes.Count);
 
@@ -783,7 +787,7 @@ namespace Portals
                 PlanePos[i] = new Vector4(APlanes[i].normal.x, APlanes[i].normal.y, APlanes[i].normal.z, APlanes[i].distance);
             }
 
-            BlockOne.SetVectorArray("_Plane", PlanePos);
+            rp.matProps.SetVectorArray("_Plane", PlanePos);
 
             for (int i = 0; i < BSector.GetComponent<GetPolygons>().Sides.Count; i++)
             {
@@ -791,7 +795,9 @@ namespace Portals
                 {
                     Matrix4x4 matrix = Matrix4x4.TRS(BSector.GetComponent<GetPolygons>().Sides[i].transform.position, BSector.GetComponent<GetPolygons>().Sides[i].transform.rotation, BSector.GetComponent<GetPolygons>().Sides[i].transform.lossyScale);
 
-                    Graphics.DrawMesh(BSector.GetComponent<GetPolygons>().Sides[i].GetComponent<MeshFilter>().mesh, matrix, BSector.GetComponent<GetPolygons>().Sides[i].GetComponent<Renderer>().sharedMaterial, 0, Camera.main, 0, BlockOne, false, false);
+                    rp.material = BSector.GetComponent<GetPolygons>().Sides[i].GetComponent<Renderer>().sharedMaterial;
+
+                    Graphics.RenderMesh(rp, BSector.GetComponent<GetPolygons>().Sides[i].GetComponent<MeshFilter>().mesh, 0, matrix);
                 }
             }
 
