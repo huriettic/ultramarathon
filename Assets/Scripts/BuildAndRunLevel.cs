@@ -273,8 +273,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
         LevelLists = new TopLevelLists();
 
-        CollisionObjects = new GameObject("Collision Meshes");
-
         LoadLevel();
 
         BuildLines();
@@ -311,7 +309,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one);
 
-        CollisionObjects = new GameObject("CollisionMeshes");
+        CollisionObjects = new GameObject("Collision Meshes");
 
         BuildCollsionSectors();
 
@@ -1088,7 +1086,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         int portalID = 0;
 
-        int r = 0;
+        int portalPlaneCount = 0;
 
         for (int h = 0; h < level.Polygons.Count; h++)
         {
@@ -1144,7 +1142,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     portalMeta.lineCount = edgeCount;
 
-                    portalMeta.portalPlane = r;
+                    portalMeta.portalPlane = portalPlaneCount;
                     portalMeta.connectedSectorID = Portal[e];
 
                     portalMeta.portalID = portalID;
@@ -1160,7 +1158,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 if (Plane[e] == h)
                 {
-                    r += 1;
+                    portalPlaneCount += 1;
                 }
 
                 if (Render[e] == h)
