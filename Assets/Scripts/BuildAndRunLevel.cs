@@ -325,8 +325,6 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), true);
         }
-
-        LevelReady();
     }
 
     void Update()
@@ -390,11 +388,6 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             currentForce.y -= gravity * Time.deltaTime;
         }
-    }
-
-    public void LevelReady()
-    {
-        Debug.Log("Level built successfully!");
     }
 
     public void LoadLevel()
@@ -1275,6 +1268,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
             collisionStart += collideCount;
         }
+
+        Debug.Log("Level built successfully!");
     }
 
     public void BuildLights()
