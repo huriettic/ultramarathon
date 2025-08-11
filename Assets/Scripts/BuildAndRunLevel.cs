@@ -101,6 +101,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private bool t;
 
+    private int MaxDepth;
+
     private float[] planeDist;
 
     private bool[] InSide;
@@ -364,6 +366,8 @@ public class BuildAndRunLevel : MonoBehaviour
             h = 0;
 
             y = 0;
+
+            MaxDepth = 0;
 
             GetPolygons(CamPlanes, CurrentSector, 4);
 
@@ -1031,6 +1035,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
         for (int i = BSector.portalStartIndex; i < BSector.portalStartIndex + BSector.portalCount; i++)
         {
+            if (MaxDepth > 4096)
+            {
+                continue;
+            }
+
             d = Planes[LevelLists.portals[i].portalPlane].GetDistanceToPoint(CamPoint);
 
             if (d < -0.1f || d <= 0 || d == 0)
@@ -1044,6 +1053,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
             if (Sectors.Contains(LevelLists.sectors[sectornumber]))
             {
+                MaxDepth += 1;
+
                 GetPolygons(APlanes, LevelLists.sectors[sectornumber], planecount);
 
                 continue;
@@ -1065,6 +1076,8 @@ public class BuildAndRunLevel : MonoBehaviour
             }
 
             SetClippingPlanes(clippedLines, ListsOfPlanes[portalnumber], CamPoint, portalnumber);
+
+            MaxDepth += 1;
 
             GetPolygons(ListsOfPlanes[portalnumber], LevelLists.sectors[sectornumber], PlaneCounts[portalnumber]);
         }
