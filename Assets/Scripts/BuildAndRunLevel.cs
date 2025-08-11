@@ -408,7 +408,7 @@ public class BuildAndRunLevel : MonoBehaviour
         try
         {
             // Change name to load a different map
-            map.Load(Application.dataPath + "/Maps/" + Name + ".sceA");
+            map.Load(Path.Combine(Application.streamingAssetsPath, Name + ".sceA"));
             Debug.Log("Map loaded successfully!");
         }
         catch (Exception exit)
