@@ -157,8 +157,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private List<Vector4> ClippedTextures = new List<Vector4>();
 
-    private List<Vector3> ClippedSegments = new List<Vector3>();
-
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
     private List<int> OpaqueTriangles = new List<int>();
@@ -408,7 +406,7 @@ public class BuildAndRunLevel : MonoBehaviour
         try
         {
             // Change name to load a different map
-            map.Load(Path.Combine(Application.streamingAssetsPath, Name + ".sceA"));
+            map.Load(Application.streamingAssetsPath + "/" + Name + ".sceA");
             Debug.Log("Map loaded successfully!");
         }
         catch (Exception exit)
@@ -801,13 +799,13 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public List<Vector3> ClipLines(List<Vector3> lines, Plane plane)
     {
-        ClippedSegments.Clear();
+        OutVertices.Clear();
 
         int count = lines.Count;
 
         if (count < 6 || count % 2 == 1)
         {
-            return ClippedSegments;
+            return OutVertices;
         }
 
         Vector3 outPoint1 = Vector3.zero;
@@ -824,8 +822,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
             if (d1 >= 0 && d2 >= 0)
             {
-                ClippedSegments.Add(v1);
-                ClippedSegments.Add(v2);
+                OutVertices.Add(v1);
+                OutVertices.Add(v2);
             }
             else if (d1 >= 0 && d2 < 0)
             {
@@ -833,8 +831,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 outPoint1 = Vector3.Lerp(v1, v2, t);
 
-                ClippedSegments.Add(v1);
-                ClippedSegments.Add(outPoint1);
+                OutVertices.Add(v1);
+                OutVertices.Add(outPoint1);
 
                 outBool1 = true;
             }
@@ -844,19 +842,19 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 outPoint2 = Vector3.Lerp(v1, v2, t);
 
-                ClippedSegments.Add(outPoint2);
-                ClippedSegments.Add(v2);
+                OutVertices.Add(outPoint2);
+                OutVertices.Add(v2);
 
                 outBool2 = true;
             }
         }
         if (outBool1 && outBool2)
         {
-            ClippedSegments.Add(outPoint1);
-            ClippedSegments.Add(outPoint2);
+            OutVertices.Add(outPoint1);
+            OutVertices.Add(outPoint2);
         }
 
-        return ClippedSegments;
+        return OutVertices;
     }
 
     public bool CheckRadius(SectorMeta asector, Vector3 campoint)
