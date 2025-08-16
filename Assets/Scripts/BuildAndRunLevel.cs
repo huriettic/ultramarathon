@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using UnityEngine;
 using Weland;
@@ -10,6 +9,7 @@ public struct Edge
 {
     public Vector3 start;
     public Vector3 end;
+    public int portalID;
 };
 
 [Serializable]
@@ -17,12 +17,14 @@ public struct Triangle
 {
     public Vector3 v1, v2, v3;
     public Vector4 uv1, uv2, uv3;
+    public int sectorID;
 };
 
 [Serializable]
 public struct Collisions
 {
     public Vector3 v1, v2, v3;
+    public int sectorID;
 };
 
 [Serializable]
@@ -1088,7 +1090,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         int edgeStart = 0;
 
-        int portalID = 0;
+        int portalnumber = 0;
 
         int portalPlaneCount = 0;
 
@@ -1137,6 +1139,8 @@ public class BuildAndRunLevel : MonoBehaviour
                         line.start = mesh.vertices[x];
                         line.end = mesh.vertices[y];
 
+                        line.portalID = portalnumber;
+
                         LevelLists.edges.Add(line);
 
                         edgeCount += 1;
@@ -1149,7 +1153,7 @@ public class BuildAndRunLevel : MonoBehaviour
                     portalMeta.portalPlane = portalPlaneCount;
                     portalMeta.connectedSectorID = Portal[e];
 
-                    portalMeta.portalID = portalID;
+                    portalMeta.portalID = portalnumber;
 
                     LevelLists.portals.Add(portalMeta);
 
@@ -1157,7 +1161,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     portalCount += 1;
 
-                    portalID += 1;
+                    portalnumber += 1;
                 }
 
                 if (Plane[e] == h)
@@ -1184,6 +1188,8 @@ public class BuildAndRunLevel : MonoBehaviour
                         otriangle.uv2 = uvVector4[mesh.triangles[i + 1]];
                         otriangle.uv3 = uvVector4[mesh.triangles[i + 2]];
 
+                        otriangle.sectorID = h;
+
                         LevelLists.opaques.Add(otriangle);
 
                         rendersCount += 1;
@@ -1201,6 +1207,8 @@ public class BuildAndRunLevel : MonoBehaviour
                         ctriangle.v1 = mesh.vertices[mesh.triangles[i]];
                         ctriangle.v2 = mesh.vertices[mesh.triangles[i + 1]];
                         ctriangle.v3 = mesh.vertices[mesh.triangles[i + 2]];
+
+                        ctriangle.sectorID = h;
 
                         LevelLists.collisions.Add(ctriangle);
 
@@ -1226,6 +1234,8 @@ public class BuildAndRunLevel : MonoBehaviour
                         ttriangle.uv1 = uvVector4[mesh.triangles[i]];
                         ttriangle.uv2 = uvVector4[mesh.triangles[i + 1]];
                         ttriangle.uv3 = uvVector4[mesh.triangles[i + 2]];
+
+                        ttriangle.sectorID = h;
 
                         LevelLists.transparents.Add(ttriangle);
 
