@@ -35,6 +35,8 @@ public struct SectorPlane
 {
     public Vector3 normal;
     public Vector3 point;
+
+    public int sectorID;
 };
 
 [Serializable]
@@ -49,6 +51,16 @@ public struct LevelLight
 {
     public Color TriangleLight;
 };
+
+[Serializable]
+public struct FrustumMeta
+{
+    public int planeStartIndex;
+    public int planeCount;
+
+    public int frustumID;
+    public int sectorID;
+}
 
 [Serializable]
 public struct PortalMeta
@@ -80,9 +92,6 @@ public struct SectorMeta
 
     public int portalStartIndex;
     public int portalCount;
-
-    public int frustumStartIndex;
-    public int frustumPlaneCount;
 
     public int sectorID;
 };
@@ -1122,6 +1131,8 @@ public class BuildAndRunLevel : MonoBehaviour
                     sectorplane.normal = mesh.normals[0];
                     sectorplane.point = mesh.vertices[0];
 
+                    sectorplane.sectorID = h;
+
                     LevelLists.planes.Add(sectorplane);
 
                     planeCount += 1;
@@ -1270,9 +1281,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
             sectorMeta.portalStartIndex = portalStart;
             sectorMeta.portalCount = portalCount;
-
-            sectorMeta.frustumStartIndex = 0;
-            sectorMeta.frustumPlaneCount = 0;
 
             sectorMeta.sectorID = h;
 
