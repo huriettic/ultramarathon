@@ -59,7 +59,6 @@ public struct FrustumMeta
     public int planeCount;
 
     public int frustumID;
-    public int sectorID;
 }
 
 [Serializable]
@@ -155,13 +154,17 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private RenderParams rp;
 
-    private List<Plane> CamPlanes = new List<Plane>(6);
+    private List<Plane> CamPlanes = new List<Plane>();
 
     private List<Plane> Planes = new List<Plane>();
 
     private SectorMeta CurrentSector;
 
+    private FrustumMeta StartFrustum;
+
     private GameObject CollisionObjects;
+
+    private List<FrustumMeta> PortalFrustums = new List<FrustumMeta>();
 
     private List<Vector3> CombinedVertices = new List<Vector3>();
 
@@ -191,8 +194,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private List<GameObject> CollisionSectors = new List<GameObject>();
 
-    private List<List<Plane>> ListsOfPlanes = new List<List<Plane>>();
-
     private List<Vector3> OutVertices = new List<Vector3>();
 
     private List<Vector4> OutTextures = new List<Vector4>();
@@ -204,8 +205,6 @@ public class BuildAndRunLevel : MonoBehaviour
     private Material transparentmaterial;
 
     private List<Mesh> CollisionMesh = new List<Mesh>();
-
-    private List<int> PlaneCounts = new List<int>();
 
     private TopLevelLists LevelLists;
 
@@ -337,6 +336,14 @@ public class BuildAndRunLevel : MonoBehaviour
 
         Player.GetComponent<CharacterController>().enabled = true;
 
+        StartFrustum = new FrustumMeta();
+
+        StartFrustum.planeStartIndex = 0;
+
+        StartFrustum.planeCount = 4;
+
+        StartFrustum.frustumID = LevelLists.portals.Count + 1;
+
         foreach (SectorMeta sector in LevelLists.sectors)
         {
             Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), true);
@@ -381,7 +388,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MaxDepth = 0;
 
-            GetPolygons(CamPlanes, CurrentSector, 4);
+            GetPolygons(StartFrustum, CurrentSector);
 
             SetRenderMeshes();
 
@@ -463,16 +470,14 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         for (int i = 0; i < LevelLists.portals.Count; i++)
         {
-            List<Plane> planelist = new List<Plane>();
+            FrustumMeta frustum = new FrustumMeta();
 
-            for (int j = 0; j < 20; j++)
-            {
-                planelist.Add(new Plane());
-            }
+            frustum.planeStartIndex = 0;
+            frustum.planeCount = 0;
 
-            ListsOfPlanes.Add(planelist);
+            frustum.frustumID = i;
 
-            PlaneCounts.Add(0);
+            PortalFrustums.Add(frustum);
         }
     }
 
@@ -534,9 +539,11 @@ public class BuildAndRunLevel : MonoBehaviour
         }
     }
 
-    public void SetClippingPlanes(List<Vector3> vertices, List<Plane> planes, Vector3 viewPos, int portalnumber)
+    public void SetClippingPlanes(List<Vector3> vertices, int portalnumber, Vector3 viewPos)
     {
-        PlaneCounts[portalnumber] = 0;
+        int StartIndex = CamPlanes.Count;
+
+        int IndexCount = 0;
 
         int count = vertices.Count;
         for (int i = 0; i < count; i += 2)
@@ -548,15 +555,17 @@ public class BuildAndRunLevel : MonoBehaviour
 
             if (magnitude > 0.01f)
             {
-                Plane temp = planes[PlaneCounts[portalnumber]];
-
-                temp.SetNormalAndPosition(normal / magnitude, p1);
-
-                planes[PlaneCounts[portalnumber]] = temp;
-
-                PlaneCounts[portalnumber] += 1;
+                CamPlanes.Add(new Plane(normal / magnitude, p1));
+                IndexCount++;
             }
         }
+
+        FrustumMeta temp = PortalFrustums[portalnumber];
+
+        temp.planeStartIndex = StartIndex;
+        temp.planeCount = IndexCount;
+
+        PortalFrustums[portalnumber] = temp;
     }
 
     public void BuildCollsionSectors()
@@ -764,9 +773,9 @@ public class BuildAndRunLevel : MonoBehaviour
         return (OutVertices, OutTextures);
     }
 
-    public (List<Vector3>, List<Vector4>) ClippingPlanesForTriangles((List<Vector3>, List<Vector4>) verttex, List<Plane> planes, int planecount)
+    public (List<Vector3>, List<Vector4>) ClippingPlanesForTriangles((List<Vector3>, List<Vector4>) verttex, FrustumMeta planes)
     {
-        for (int i = 0; i < planecount; i++)
+        for (int i = planes.planeStartIndex; i < planes.planeStartIndex + planes.planeCount; i++)
         {
             if (verttex.Item1.Count < 3)
             {
@@ -781,15 +790,15 @@ public class BuildAndRunLevel : MonoBehaviour
 
             ClippedTextures.AddRange(verttex.Item2);
 
-            verttex = ClipTriangles((ClippedVertices, ClippedTextures), planes[i]);
+            verttex = ClipTriangles((ClippedVertices, ClippedTextures), CamPlanes[i]);
         }
 
         return verttex;
     }
 
-    public List<Vector3> ClippingPlanesLines(List<Vector3> lines, List<Plane> planes, int planecount)
+    public List<Vector3> ClippingPlanesLines(List<Vector3> lines, FrustumMeta planes)
     {
-        for (int i = 0; i < planecount; i++)
+        for (int i = planes.planeStartIndex; i < planes.planeStartIndex + planes.planeCount; i++)
         {
             if (lines.Count < 6 || lines.Count % 2 == 1)
             {
@@ -800,7 +809,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             ClippedVertices.AddRange(lines);
 
-            lines = ClipLines(ClippedVertices, planes[i]);
+            lines = ClipLines(ClippedVertices, CamPlanes[i]);
         }
 
         return lines;
@@ -980,7 +989,7 @@ public class BuildAndRunLevel : MonoBehaviour
         }
     }
 
-    public void GetPolygons(List<Plane> APlanes, SectorMeta BSector, int planecount)
+    public void GetPolygons(FrustumMeta APlanes, SectorMeta BSector)
     {
         CombinedVertices.Clear();
 
@@ -996,7 +1005,7 @@ public class BuildAndRunLevel : MonoBehaviour
             CombinedTextures.Add(LevelLists.opaques[e].uv3);
         }
 
-        (List<Vector3>, List<Vector4>) oclippedData = ClippingPlanesForTriangles((CombinedVertices, CombinedTextures), APlanes, planecount);
+        (List<Vector3>, List<Vector4>) oclippedData = ClippingPlanesForTriangles((CombinedVertices, CombinedTextures), APlanes);
 
         List<Vector3> overtices = oclippedData.Item1;
 
@@ -1025,7 +1034,7 @@ public class BuildAndRunLevel : MonoBehaviour
             CombinedTextures.Add(LevelLists.transparents[e].uv3);
         }
 
-        (List<Vector3>, List<Vector4>) tclippedData = ClippingPlanesForTriangles((CombinedVertices, CombinedTextures), APlanes, planecount);
+        (List<Vector3>, List<Vector4>) tclippedData = ClippingPlanesForTriangles((CombinedVertices, CombinedTextures), APlanes);
 
         List<Vector3> tvertices = tclippedData.Item1;
 
@@ -1062,7 +1071,7 @@ public class BuildAndRunLevel : MonoBehaviour
             {
                 MaxDepth += 1;
 
-                GetPolygons(APlanes, LevelLists.sectors[sectornumber], planecount);
+                GetPolygons(APlanes, LevelLists.sectors[sectornumber]);
 
                 continue;
             }
@@ -1075,18 +1084,18 @@ public class BuildAndRunLevel : MonoBehaviour
                 CombinedVertices.Add(LevelLists.edges[f].end);
             }
 
-            List<Vector3> clippedLines = ClippingPlanesLines(CombinedVertices, APlanes, planecount);
+            List<Vector3> clippedLines = ClippingPlanesLines(CombinedVertices, APlanes);
 
             if (clippedLines.Count < 6 || clippedLines.Count % 2 == 1)
             {
                 continue;
             }
 
-            SetClippingPlanes(clippedLines, ListsOfPlanes[portalnumber], CamPoint, portalnumber);
+            SetClippingPlanes(clippedLines, portalnumber, CamPoint);
 
             MaxDepth += 1;
 
-            GetPolygons(ListsOfPlanes[portalnumber], LevelLists.sectors[sectornumber], PlaneCounts[portalnumber]);
+            GetPolygons(PortalFrustums[portalnumber], LevelLists.sectors[sectornumber]);
         }
     }
 
