@@ -59,7 +59,7 @@ public struct FrustumMeta
     public int planeCount;
 
     public int frustumID;
-}
+};
 
 [Serializable]
 public struct PortalMeta
@@ -161,8 +161,6 @@ public class BuildAndRunLevel : MonoBehaviour
     private SectorMeta CurrentSector;
 
     private GameObject CollisionObjects;
-
-    private List<FrustumMeta> PortalFrustums = new List<FrustumMeta>();
 
     private List<Vector3> CombinedVertices = new List<Vector3>();
 
