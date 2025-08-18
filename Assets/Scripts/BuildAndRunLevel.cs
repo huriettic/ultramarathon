@@ -9,7 +9,9 @@ public struct Edge
 {
     public Vector3 start;
     public Vector3 end;
+
     public int portalID;
+    public int sectorID;
 };
 
 [Serializable]
@@ -17,6 +19,7 @@ public struct Triangle
 {
     public Vector3 v1, v2, v3;
     public Vector4 uv1, uv2, uv3;
+
     public int sectorID;
 };
 
@@ -38,7 +41,7 @@ public struct SectorPlane
 public struct StartPos
 {
     public Vector3 Position;
-    public int Sector;
+    public int SectorID;
 };
 
 [Serializable]
@@ -55,6 +58,8 @@ public struct PortalMeta
 
     public int portalPlane;
     public int portalID;
+
+    public int sectorID;
     public int connectedSectorID;
 };
 
@@ -475,7 +480,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         StartPos selectedPosition = LevelLists.positions[randomIndex];
 
-        CurrentSector = LevelLists.sectors[selectedPosition.Sector];
+        CurrentSector = LevelLists.sectors[selectedPosition.SectorID];
 
         Player.transform.position = new Vector3(selectedPosition.Position.x, selectedPosition.Position.y + 1.10f, selectedPosition.Position.z);
     }
@@ -1141,6 +1146,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
                         line.portalID = portalnumber;
 
+                        line.sectorID = h;
+
                         LevelLists.edges.Add(line);
 
                         edgeCount += 1;
@@ -1151,6 +1158,9 @@ public class BuildAndRunLevel : MonoBehaviour
                     portalMeta.lineCount = edgeCount;
 
                     portalMeta.portalPlane = portalPlaneCount;
+
+                    portalMeta.sectorID = h;
+
                     portalMeta.connectedSectorID = Portal[e];
 
                     portalMeta.portalID = portalnumber;
@@ -1306,7 +1316,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 Start.Position = new Vector3((float)level.Objects[i].X / 1024 * Scale, (float)level.Polygons[level.Objects[i].PolygonIndex].FloorHeight / 1024 * Scale, (float)level.Objects[i].Y / 1024 * Scale * -1);
 
-                Start.Sector = level.Objects[i].PolygonIndex;
+                Start.SectorID = level.Objects[i].PolygonIndex;
 
                 LevelLists.positions.Add(Start);
             }
