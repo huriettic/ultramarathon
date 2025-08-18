@@ -160,8 +160,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private SectorMeta CurrentSector;
 
-    private FrustumMeta StartFrustum;
-
     private GameObject CollisionObjects;
 
     private List<FrustumMeta> PortalFrustums = new List<FrustumMeta>();
@@ -218,6 +216,7 @@ public class BuildAndRunLevel : MonoBehaviour
         public List<Triangle> opaques = new List<Triangle>();
         public List<Triangle> transparents = new List<Triangle>();
         public List<Collisions> collisions = new List<Collisions>();
+        public List<FrustumMeta> frustums = new List<FrustumMeta>();
         public List<SectorPlane> planes = new List<SectorPlane>();
         public List<Edge> edges = new List<Edge>();
     }
@@ -300,8 +299,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
         BuildTheLists();
 
-        MakeLists();
-
         LightColor = new Color[LevelLists.colors.Count];
 
         OneTriangle = new int[3];
@@ -334,15 +331,15 @@ public class BuildAndRunLevel : MonoBehaviour
 
         Playerstart();
 
+        FrustumMeta temp = LevelLists.frustums[LevelLists.frustums.Count - 1];
+
+        temp.planeStartIndex = 0;
+
+        temp.planeCount = 4;
+
+        LevelLists.frustums[LevelLists.frustums.Count - 1] = temp;
+
         Player.GetComponent<CharacterController>().enabled = true;
-
-        StartFrustum = new FrustumMeta();
-
-        StartFrustum.planeStartIndex = 0;
-
-        StartFrustum.planeCount = 4;
-
-        StartFrustum.frustumID = LevelLists.portals.Count + 1;
 
         foreach (SectorMeta sector in LevelLists.sectors)
         {
@@ -388,7 +385,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MaxDepth = 0;
 
-            GetPolygons(StartFrustum, CurrentSector);
+            GetPolygons(LevelLists.frustums[LevelLists.frustums.Count - 1], CurrentSector);
 
             SetRenderMeshes();
 
@@ -466,21 +463,6 @@ public class BuildAndRunLevel : MonoBehaviour
         transparentmaterial.SetColorArray("_ColorArray", LightColor);
     }
 
-    public void MakeLists()
-    {
-        for (int i = 0; i < LevelLists.portals.Count; i++)
-        {
-            FrustumMeta frustum = new FrustumMeta();
-
-            frustum.planeStartIndex = 0;
-            frustum.planeCount = 0;
-
-            frustum.frustumID = i;
-
-            PortalFrustums.Add(frustum);
-        }
-    }
-
     public void Playerstart()
     {
         if (LevelLists.positions.Count == 0)
@@ -556,16 +538,16 @@ public class BuildAndRunLevel : MonoBehaviour
             if (magnitude > 0.01f)
             {
                 CamPlanes.Add(new Plane(normal / magnitude, p1));
-                IndexCount++;
+                IndexCount += 1;
             }
         }
 
-        FrustumMeta temp = PortalFrustums[portalnumber];
+        FrustumMeta temp = LevelLists.frustums[portalnumber];
 
         temp.planeStartIndex = StartIndex;
         temp.planeCount = IndexCount;
 
-        PortalFrustums[portalnumber] = temp;
+        LevelLists.frustums[portalnumber] = temp;
     }
 
     public void BuildCollsionSectors()
@@ -1095,7 +1077,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MaxDepth += 1;
 
-            GetPolygons(PortalFrustums[portalnumber], LevelLists.sectors[sectornumber]);
+            GetPolygons(LevelLists.frustums[portalnumber], LevelLists.sectors[sectornumber]);
         }
     }
 
@@ -1155,6 +1137,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     PortalMeta portalMeta = new PortalMeta();
 
+                    FrustumMeta portalfrustum = new FrustumMeta();
+
                     for (int x = 0; x < mesh.vertices.Length; x++)
                     {
                         int y = (x + 1) % mesh.vertices.Length;
@@ -1186,6 +1170,14 @@ public class BuildAndRunLevel : MonoBehaviour
                     portalMeta.portalID = portalnumber;
 
                     LevelLists.portals.Add(portalMeta);
+
+                    portalfrustum.planeStartIndex = 0;
+
+                    portalfrustum.planeCount = 0;
+
+                    portalfrustum.frustumID = portalnumber;
+
+                    LevelLists.frustums.Add(portalfrustum);
 
                     edgeStart += edgeCount;
 
@@ -1305,6 +1297,16 @@ public class BuildAndRunLevel : MonoBehaviour
 
             collisionStart += collideCount;
         }
+
+        FrustumMeta camfrustum = new FrustumMeta();
+
+        camfrustum.planeStartIndex = 0;
+
+        camfrustum.planeCount = 0;
+
+        camfrustum.frustumID = portalnumber + 1;
+
+        LevelLists.frustums.Add(camfrustum);
 
         Debug.Log("Level built successfully!");
     }
