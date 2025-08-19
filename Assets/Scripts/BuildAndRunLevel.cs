@@ -122,6 +122,12 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private bool[] InSide;
 
+    private float[] lineDist;
+
+    private bool[] lineInSide;
+
+    private Vector3[] intersectionPoints;
+
     private Mesh opaquemesh;
 
     private Mesh transparentmesh;
@@ -304,6 +310,12 @@ public class BuildAndRunLevel : MonoBehaviour
         planeDist = new float[3];
 
         InSide = new bool[3];
+
+        lineDist = new float[2];
+
+        lineInSide = new bool[2];
+
+        intersectionPoints = new Vector3[2];
 
         CreateMaterial();
 
@@ -622,7 +634,7 @@ public class BuildAndRunLevel : MonoBehaviour
         Player.Move((targetMovement + currentForce) * speed * Time.deltaTime);
     }
 
-    public (List<Vector3>, List<Vector4>) ClipTriangles((List<Vector3>, List<Vector4>) verttex, Plane plane, float epsilon = 0.00001f)
+    public (List<Vector3>, List<Vector4>) ClipTriangles((List<Vector3>, List<Vector4>) verttex, Plane plane)
     {
         OutVertices.Clear();
         OutTextures.Clear();
@@ -650,9 +662,9 @@ public class BuildAndRunLevel : MonoBehaviour
             planeDist[0] = plane.GetDistanceToPoint(vertices[i]);
             planeDist[1] = plane.GetDistanceToPoint(vertices[i + 1]);
             planeDist[2] = plane.GetDistanceToPoint(vertices[i + 2]);
-            InSide[0] = planeDist[0] >= -epsilon;
-            InSide[1] = planeDist[1] >= -epsilon;
-            InSide[2] = planeDist[2] >= -epsilon;
+            InSide[0] = planeDist[0] >= 0;
+            InSide[1] = planeDist[1] >= 0;
+            InSide[2] = planeDist[2] >= 0;
 
             int inCount = 0;
 
@@ -789,13 +801,13 @@ public class BuildAndRunLevel : MonoBehaviour
 
             ClippedVertices.AddRange(lines);
 
-            lines = ClipLines(ClippedVertices, CamPlanes[i]);
+            lines = ClipEdges(ClippedVertices, CamPlanes[i]);
         }
 
         return lines;
     }
 
-    public List<Vector3> ClipLines(List<Vector3> lines, Plane plane)
+    public List<Vector3> ClipEdges(List<Vector3> lines, Plane plane)
     {
         OutVertices.Clear();
 
@@ -806,50 +818,60 @@ public class BuildAndRunLevel : MonoBehaviour
             return OutVertices;
         }
 
-        Vector3 outPoint1 = Vector3.zero;
-        Vector3 outPoint2 = Vector3.zero;
-        bool outBool1 = false;
-        bool outBool2 = false;
+        int intersection = 0;
 
         for (int i = 0; i < count; i += 2)
         {
-            Vector3 v1 = lines[i];
-            Vector3 v2 = lines[i + 1];
-            float d1 = plane.GetDistanceToPoint(v1);
-            float d2 = plane.GetDistanceToPoint(v2);
+            lineDist[0] = plane.GetDistanceToPoint(lines[i]);
+            lineDist[1] = plane.GetDistanceToPoint(lines[i + 1]);
+            lineInSide[0] = lineDist[0] >= 0;
+            lineInSide[1] = lineDist[1] >= 0;
 
-            if (d1 >= 0 && d2 >= 0)
+            int inCount = 0;
+
+            if (lineInSide[0])
             {
-                OutVertices.Add(v1);
-                OutVertices.Add(v2);
+                inCount++;
             }
-            else if (d1 >= 0 && d2 < 0)
+
+            if (lineInSide[1])
             {
-                float t = d1 / (d1 - d2);
-
-                outPoint1 = Vector3.Lerp(v1, v2, t);
-
-                OutVertices.Add(v1);
-                OutVertices.Add(outPoint1);
-
-                outBool1 = true;
+                inCount++;
             }
-            else if (d1 < 0 && d2 >= 0)
+
+            if (inCount == 2)
             {
-                float t = d1 / (d1 - d2);
+                OutVertices.Add(lines[i]);
+                OutVertices.Add(lines[i + 1]);
+            }
+            else if (inCount == 1)
+            {
+                float t = lineDist[0] / (lineDist[0] - lineDist[1]);
 
-                outPoint2 = Vector3.Lerp(v1, v2, t);
+                if (lineInSide[0] && !lineInSide[1])
+                {
+                    intersectionPoints[1] = Vector3.Lerp(lines[i], lines[i + 1], t);
 
-                OutVertices.Add(outPoint2);
-                OutVertices.Add(v2);
+                    OutVertices.Add(lines[i]);
+                    OutVertices.Add(intersectionPoints[1]);
 
-                outBool2 = true;
+                    intersection++;
+                }
+                else if (!lineInSide[0] && lineInSide[1])
+                {
+                    intersectionPoints[0] = Vector3.Lerp(lines[i], lines[i + 1], t);
+
+                    OutVertices.Add(intersectionPoints[0]);
+                    OutVertices.Add(lines[i + 1]);
+
+                    intersection++;
+                }
             }
         }
-        if (outBool1 && outBool2)
+        if (intersection == 2)
         {
-            OutVertices.Add(outPoint1);
-            OutVertices.Add(outPoint2);
+            OutVertices.Add(intersectionPoints[1]);
+            OutVertices.Add(intersectionPoints[0]);
         }
 
         return OutVertices;
