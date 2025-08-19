@@ -128,6 +128,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private Vector3[] intersectionPoints;
 
+    private Vector3[] lineSegment;
+
     private Mesh opaquemesh;
 
     private Mesh transparentmesh;
@@ -314,6 +316,8 @@ public class BuildAndRunLevel : MonoBehaviour
         lineDist = new float[2];
 
         lineInSide = new bool[2];
+
+        lineSegment = new Vector3[2];
 
         intersectionPoints = new Vector3[2];
 
@@ -819,6 +823,8 @@ public class BuildAndRunLevel : MonoBehaviour
         }
 
         int intersection = 0;
+        int inIndex = 0;
+        int outIndex = 0;
 
         for (int i = 0; i < count; i += 2)
         {
@@ -846,26 +852,28 @@ public class BuildAndRunLevel : MonoBehaviour
             }
             else if (inCount == 1)
             {
-                float t = lineDist[0] / (lineDist[0] - lineDist[1]);
-
                 if (lineInSide[0] && !lineInSide[1])
                 {
-                    intersectionPoints[1] = Vector3.Lerp(lines[i], lines[i + 1], t);
-
-                    OutVertices.Add(lines[i]);
-                    OutVertices.Add(intersectionPoints[1]);
-
-                    intersection++;
+                    inIndex = 0;
+                    outIndex = 1;
                 }
                 else if (!lineInSide[0] && lineInSide[1])
                 {
-                    intersectionPoints[0] = Vector3.Lerp(lines[i], lines[i + 1], t);
-
-                    OutVertices.Add(intersectionPoints[0]);
-                    OutVertices.Add(lines[i + 1]);
-
-                    intersection++;
+                   inIndex = 1; 
+                   outIndex = 0;
                 }
+
+                float t = lineDist[0] / (lineDist[0] - lineDist[1]);
+
+                intersectionPoints[outIndex] = Vector3.Lerp(lines[i], lines[i + 1], t);
+
+                lineSegment[inIndex] = lines[i + inIndex];
+                lineSegment[outIndex] = intersectionPoints[outIndex];
+
+                OutVertices.Add(lineSegment[0]);
+                OutVertices.Add(lineSegment[1]);
+
+                intersection++;
             }
         }
         if (intersection == 2)
