@@ -120,12 +120,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private float[] planeDist;
 
-    private bool[] InSide;
-
-    private float[] lineDist;
-
-    private bool[] lineInSide;
-
     private Vector3[] intersectionPoints;
 
     private Vector3[] lineSegment;
@@ -310,12 +304,6 @@ public class BuildAndRunLevel : MonoBehaviour
         OneTriangle = new int[3];
 
         planeDist = new float[3];
-
-        InSide = new bool[3];
-
-        lineDist = new float[2];
-
-        lineInSide = new bool[2];
 
         lineSegment = new Vector3[2];
 
@@ -666,25 +654,25 @@ public class BuildAndRunLevel : MonoBehaviour
             planeDist[0] = plane.GetDistanceToPoint(vertices[i]);
             planeDist[1] = plane.GetDistanceToPoint(vertices[i + 1]);
             planeDist[2] = plane.GetDistanceToPoint(vertices[i + 2]);
-            InSide[0] = planeDist[0] >= 0;
-            InSide[1] = planeDist[1] >= 0;
-            InSide[2] = planeDist[2] >= 0;
+            bool b1 = planeDist[0] >= 0;
+            bool b2 = planeDist[1] >= 0;
+            bool b3 = planeDist[2] >= 0;
 
             int inCount = 0;
 
-            if (InSide[0])
+            if (b1)
             {
-                inCount++;
+                inCount += 1;
             }
 
-            if (InSide[1])
+            if (b2)
             {
-                inCount++;
+                inCount += 1;
             }
 
-            if (InSide[2])
+            if (b3)
             {
-                inCount++;
+                inCount += 1;
             }
 
             if (inCount == 3)
@@ -698,19 +686,19 @@ public class BuildAndRunLevel : MonoBehaviour
             }
             else if (inCount == 1)
             {
-                if (InSide[0] && !InSide[1] && !InSide[2])
+                if (b1 && !b2 && !b3)
                 {
                     inIndex = 0;
                     outIndex1 = 1;
                     outIndex2 = 2;
                 }
-                else if (!InSide[0] && InSide[1] && !InSide[2])
+                else if (!b1 && b2 && !b3)
                 {
                     outIndex1 = 2;
                     inIndex = 1;
                     outIndex2 = 0;
                 }
-                else if (!InSide[0] && !InSide[1] && InSide[2])
+                else if (!b1 && !b2 && b3)
                 {
                     outIndex1 = 0;
                     outIndex2 = 1;
@@ -729,19 +717,19 @@ public class BuildAndRunLevel : MonoBehaviour
             }
             else if (inCount == 2)
             {
-                if (!InSide[0] && InSide[1] && InSide[2])
+                if (!b1 && b2 && b3)
                 {
                     outIndex = 0;
                     inIndex1 = 1;
                     inIndex2 = 2;
                 }
-                else if (InSide[0] && !InSide[1] && InSide[2])
+                else if (b1 && !b2 && b3)
                 {
                     inIndex1 = 2;
                     outIndex = 1;
                     inIndex2 = 0;
                 }
-                else if (InSide[0] && InSide[1] && !InSide[2])
+                else if (b1 && b2 && !b3)
                 {
                     inIndex1 = 0;
                     inIndex2 = 1;
@@ -828,21 +816,21 @@ public class BuildAndRunLevel : MonoBehaviour
 
         for (int i = 0; i < count; i += 2)
         {
-            lineDist[0] = plane.GetDistanceToPoint(lines[i]);
-            lineDist[1] = plane.GetDistanceToPoint(lines[i + 1]);
-            lineInSide[0] = lineDist[0] >= 0;
-            lineInSide[1] = lineDist[1] >= 0;
+            float d1 = plane.GetDistanceToPoint(lines[i]);
+            float d2 = plane.GetDistanceToPoint(lines[i + 1]);
+            bool b1 = d1 >= 0;
+            bool b2 = d2 >= 0;
 
             int inCount = 0;
 
-            if (lineInSide[0])
+            if (b1)
             {
-                inCount++;
+                inCount += 1;
             }
 
-            if (lineInSide[1])
+            if (b2)
             {
-                inCount++;
+                inCount += 1;
             }
 
             if (inCount == 2)
@@ -852,18 +840,18 @@ public class BuildAndRunLevel : MonoBehaviour
             }
             else if (inCount == 1)
             {
-                if (lineInSide[0] && !lineInSide[1])
+                if (b1 && !b2)
                 {
                     inIndex = 0;
                     outIndex = 1;
                 }
-                else if (!lineInSide[0] && lineInSide[1])
+                else if (!b1 && b2)
                 {
                    inIndex = 1; 
                    outIndex = 0;
                 }
 
-                float t = lineDist[0] / (lineDist[0] - lineDist[1]);
+                float t = d1 / (d1 - d2);
 
                 intersectionPoints[outIndex] = Vector3.Lerp(lines[i], lines[i + 1], t);
 
@@ -873,7 +861,7 @@ public class BuildAndRunLevel : MonoBehaviour
                 OutVertices.Add(lineSegment[0]);
                 OutVertices.Add(lineSegment[1]);
 
-                intersection++;
+                intersection += 1;
             }
         }
         if (intersection == 2)
