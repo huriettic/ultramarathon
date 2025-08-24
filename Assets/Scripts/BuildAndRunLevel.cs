@@ -164,15 +164,19 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private GameObject CollisionObjects;
 
+    private List<bool> ProcessBool = new List<bool>();
+
+    private List<Vector3> ProcessVertices = new List<Vector3>();
+
+    private List<Vector4> ProcessTextures = new List<Vector4>();
+
+    private List<Vector3> TemporaryVertices = new List<Vector3>();
+
+    private List<Vector4> TemporaryTextures = new List<Vector4>();
+
     private List<Vector3> CombinedVertices = new List<Vector3>();
 
-    private List<Vector4> CombinedTextures = new List<Vector4>();
-
     private List<int> CombinedTriangles = new List<int>();
-
-    private List<Vector3> ClippedVertices = new List<Vector3>();
-
-    private List<Vector4> ClippedTextures = new List<Vector4>();
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
@@ -626,248 +630,308 @@ public class BuildAndRunLevel : MonoBehaviour
         Player.Move((targetMovement + currentForce) * speed * Time.deltaTime);
     }
 
-    public (List<Vector3>, List<Vector4>) ClipTriangles((List<Vector3>, List<Vector4>) verttex, Plane plane)
+    public (List<Vector3>, List<Vector4>) ClipTrianglesWithPlanes(FrustumMeta planes, int startIndex, int count)
     {
         OutVertices.Clear();
         OutTextures.Clear();
+        ProcessVertices.Clear();
+        ProcessTextures.Clear();
+        ProcessBool.Clear();
 
-        int inIndex = 0;
-        int outIndex1 = 0;
-        int outIndex2 = 0;
-        int outIndex = 0;
-        int inIndex1 = 0;
-        int inIndex2 = 0;
-
-        int count = verttex.Item1.Count;
-
-        if (count < 3)
+        for (int a = startIndex; a < count; a++)
         {
-            return (OutVertices, OutTextures);
+            ProcessVertices.Add(LevelLists.opaques[a].v1);
+            ProcessVertices.Add(LevelLists.opaques[a].v2);
+            ProcessVertices.Add(LevelLists.opaques[a].v3);
+            ProcessTextures.Add(LevelLists.opaques[a].uv1);
+            ProcessTextures.Add(LevelLists.opaques[a].uv2);
+            ProcessTextures.Add(LevelLists.opaques[a].uv3);
+            ProcessBool.Add(true);
+            ProcessBool.Add(true);
+            ProcessBool.Add(true);
         }
 
-        List<Vector3> vertices = verttex.Item1;
-
-        List<Vector4> textures = verttex.Item2;
-
-        for (int i = 0; i < count; i += 3)
+        for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
         {
-            planeDist[0] = plane.GetDistanceToPoint(vertices[i]);
-            planeDist[1] = plane.GetDistanceToPoint(vertices[i + 1]);
-            planeDist[2] = plane.GetDistanceToPoint(vertices[i + 2]);
-            bool b1 = planeDist[0] >= 0;
-            bool b2 = planeDist[1] >= 0;
-            bool b3 = planeDist[2] >= 0;
+            int inIndex = 0;
+            int outIndex1 = 0;
+            int outIndex2 = 0;
+            int outIndex = 0;
+            int inIndex1 = 0;
+            int inIndex2 = 0;
 
-            int inCount = 0;
+            int AddTriangles = 0;
 
-            if (b1)
+            TemporaryVertices.Clear();
+
+            TemporaryTextures.Clear();
+
+            for (int c = 0; c < ProcessVertices.Count; c += 3)
             {
-                inCount += 1;
+                if (ProcessBool[c] == false && ProcessBool[c + 1] == false && ProcessBool[c + 2] == false)
+                {
+                    continue;
+                }
+
+                planeDist[0] = CamPlanes[b].GetDistanceToPoint(ProcessVertices[c]);
+                planeDist[1] = CamPlanes[b].GetDistanceToPoint(ProcessVertices[c + 1]);
+                planeDist[2] = CamPlanes[b].GetDistanceToPoint(ProcessVertices[c + 2]);
+                bool b1 = planeDist[0] >= 0;
+                bool b2 = planeDist[1] >= 0;
+                bool b3 = planeDist[2] >= 0;
+
+                int inCount = 0;
+
+                if (b1)
+                {
+                    inCount += 1;
+                }
+
+                if (b2)
+                {
+                    inCount += 1;
+                }
+
+                if (b3)
+                {
+                    inCount += 1;
+                }
+
+                if (inCount == 3)
+                {
+                    continue;
+                }
+                else if (inCount == 1)
+                {
+                    if (b1 && !b2 && !b3)
+                    {
+                        inIndex = 0;
+                        outIndex1 = 1;
+                        outIndex2 = 2;
+                    }
+                    else if (!b1 && b2 && !b3)
+                    {
+                        outIndex1 = 2;
+                        inIndex = 1;
+                        outIndex2 = 0;
+                    }
+                    else if (!b1 && !b2 && b3)
+                    {
+                        outIndex1 = 0;
+                        outIndex2 = 1;
+                        inIndex = 2;
+                    }
+
+                    float t1 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex1]);
+                    float t2 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex2]);
+
+                    TemporaryVertices.Add(ProcessVertices[c + inIndex]);
+                    TemporaryTextures.Add(ProcessTextures[c + inIndex]);
+                    TemporaryVertices.Add(Vector3.Lerp(ProcessVertices[c + inIndex], ProcessVertices[c + outIndex1], t1));
+                    TemporaryTextures.Add(Vector4.Lerp(ProcessTextures[c + inIndex], ProcessTextures[c + outIndex1], t1));
+                    TemporaryVertices.Add(Vector3.Lerp(ProcessVertices[c + inIndex], ProcessVertices[c + outIndex2], t2));
+                    TemporaryTextures.Add(Vector4.Lerp(ProcessTextures[c + inIndex], ProcessTextures[c + outIndex2], t2));
+
+                    ProcessBool[c] = false;
+                    ProcessBool[c + 1] = false;
+                    ProcessBool[c + 2] = false;
+
+                    AddTriangles += 1;
+                }
+                else if (inCount == 2)
+                {
+                    if (!b1 && b2 && b3)
+                    {
+                        outIndex = 0;
+                        inIndex1 = 1;
+                        inIndex2 = 2;
+                    }
+                    else if (b1 && !b2 && b3)
+                    {
+                        inIndex1 = 2;
+                        outIndex = 1;
+                        inIndex2 = 0;
+                    }
+                    else if (b1 && b2 && !b3)
+                    {
+                        inIndex1 = 0;
+                        inIndex2 = 1;
+                        outIndex = 2;
+                    }
+
+                    float t1 = planeDist[inIndex1] / (planeDist[inIndex1] - planeDist[outIndex]);
+                    float t2 = planeDist[inIndex2] / (planeDist[inIndex2] - planeDist[outIndex]);
+
+                    TemporaryVertices.Add(ProcessVertices[c + inIndex1]);
+                    TemporaryTextures.Add(ProcessTextures[c + inIndex1]);
+                    TemporaryVertices.Add(ProcessVertices[c + inIndex2]);
+                    TemporaryTextures.Add(ProcessTextures[c + inIndex2]);
+                    TemporaryVertices.Add(Vector3.Lerp(ProcessVertices[c + inIndex1], ProcessVertices[c + outIndex], t1));
+                    TemporaryTextures.Add(Vector4.Lerp(ProcessTextures[c + inIndex1], ProcessTextures[c + outIndex], t1));
+                    TemporaryVertices.Add(Vector3.Lerp(ProcessVertices[c + inIndex1], ProcessVertices[c + outIndex], t1));
+                    TemporaryTextures.Add(Vector4.Lerp(ProcessTextures[c + inIndex1], ProcessTextures[c + outIndex], t1));
+                    TemporaryVertices.Add(ProcessVertices[c + inIndex2]);
+                    TemporaryTextures.Add(ProcessTextures[c + inIndex2]);
+                    TemporaryVertices.Add(Vector3.Lerp(ProcessVertices[c + inIndex2], ProcessVertices[c + outIndex], t2));
+                    TemporaryTextures.Add(Vector4.Lerp(ProcessTextures[c + inIndex2], ProcessTextures[c + outIndex], t2));
+
+                    ProcessBool[c] = false;
+                    ProcessBool[c + 1] = false;
+                    ProcessBool[c + 2] = false;
+
+                    AddTriangles += 1;
+                }
+                else if (inCount == 0)
+                {
+                    ProcessBool[c] = false;
+                    ProcessBool[c + 1] = false;
+                    ProcessBool[c + 2] = false;
+                }
             }
 
-            if (b2)
+            if (AddTriangles > 0)
             {
-                inCount += 1;
+                for (int d = 0; d < TemporaryVertices.Count; d += 3)
+                {
+                    ProcessVertices.Add(TemporaryVertices[d]);
+                    ProcessVertices.Add(TemporaryVertices[d + 1]);
+                    ProcessVertices.Add(TemporaryVertices[d + 2]);
+                    ProcessTextures.Add(TemporaryTextures[d]);
+                    ProcessTextures.Add(TemporaryTextures[d + 1]);
+                    ProcessTextures.Add(TemporaryTextures[d + 2]);
+                    ProcessBool.Add(true);
+                    ProcessBool.Add(true);
+                    ProcessBool.Add(true);
+                }
             }
+        }
 
-            if (b3)
+        for (int e = 0; e < ProcessBool.Count; e += 3)
+        {
+            if (ProcessBool[e] && ProcessBool[e + 1] && ProcessBool[e + 2])
             {
-                inCount += 1;
-            }
-
-            if (inCount == 3)
-            {
-                OutVertices.Add(vertices[i]);
-                OutVertices.Add(vertices[i + 1]);
-                OutVertices.Add(vertices[i + 2]);
-                OutTextures.Add(textures[i]);
-                OutTextures.Add(textures[i + 1]);
-                OutTextures.Add(textures[i + 2]);
-            }
-            else if (inCount == 1)
-            {
-                if (b1 && !b2 && !b3)
-                {
-                    inIndex = 0;
-                    outIndex1 = 1;
-                    outIndex2 = 2;
-                }
-                else if (!b1 && b2 && !b3)
-                {
-                    outIndex1 = 2;
-                    inIndex = 1;
-                    outIndex2 = 0;
-                }
-                else if (!b1 && !b2 && b3)
-                {
-                    outIndex1 = 0;
-                    outIndex2 = 1;
-                    inIndex = 2;
-                }
-
-                float t1 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex1]);
-                float t2 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex2]);
-
-                OutVertices.Add(vertices[i + inIndex]);
-                OutTextures.Add(textures[i + inIndex]);
-                OutVertices.Add(Vector3.Lerp(vertices[i + inIndex], vertices[i + outIndex1], t1));
-                OutTextures.Add(Vector4.Lerp(textures[i + inIndex], textures[i + outIndex1], t1));
-                OutVertices.Add(Vector3.Lerp(vertices[i + inIndex], vertices[i + outIndex2], t2));
-                OutTextures.Add(Vector4.Lerp(textures[i + inIndex], textures[i + outIndex2], t2));
-            }
-            else if (inCount == 2)
-            {
-                if (!b1 && b2 && b3)
-                {
-                    outIndex = 0;
-                    inIndex1 = 1;
-                    inIndex2 = 2;
-                }
-                else if (b1 && !b2 && b3)
-                {
-                    inIndex1 = 2;
-                    outIndex = 1;
-                    inIndex2 = 0;
-                }
-                else if (b1 && b2 && !b3)
-                {
-                    inIndex1 = 0;
-                    inIndex2 = 1;
-                    outIndex = 2;
-                }
-
-                float t1 = planeDist[inIndex1] / (planeDist[inIndex1] - planeDist[outIndex]);
-                float t2 = planeDist[inIndex2] / (planeDist[inIndex2] - planeDist[outIndex]);
-
-                OutVertices.Add(vertices[i + inIndex1]);
-                OutTextures.Add(textures[i + inIndex1]);
-                OutVertices.Add(vertices[i + inIndex2]);
-                OutTextures.Add(textures[i + inIndex2]);
-                OutVertices.Add(Vector3.Lerp(vertices[i + inIndex1], vertices[i + outIndex], t1));
-                OutTextures.Add(Vector4.Lerp(textures[i + inIndex1], textures[i + outIndex], t1));
-                OutVertices.Add(Vector3.Lerp(vertices[i + inIndex1], vertices[i + outIndex], t1));
-                OutTextures.Add(Vector4.Lerp(textures[i + inIndex1], textures[i + outIndex], t1));
-                OutVertices.Add(vertices[i + inIndex2]);
-                OutTextures.Add(textures[i + inIndex2]);
-                OutVertices.Add(Vector3.Lerp(vertices[i + inIndex2], vertices[i + outIndex], t2));
-                OutTextures.Add(Vector4.Lerp(textures[i + inIndex2], textures[i + outIndex], t2));
+                OutVertices.Add(ProcessVertices[e]);
+                OutVertices.Add(ProcessVertices[e + 1]);
+                OutVertices.Add(ProcessVertices[e + 2]);
+                OutTextures.Add(ProcessTextures[e]);
+                OutTextures.Add(ProcessTextures[e + 1]);
+                OutTextures.Add(ProcessTextures[e + 2]);
             }
         }
 
         return (OutVertices, OutTextures);
     }
 
-    public (List<Vector3>, List<Vector4>) ClippingPlanesForTriangles((List<Vector3>, List<Vector4>) verttex, FrustumMeta planes)
-    {
-        for (int i = planes.planeStartIndex; i < planes.planeStartIndex + planes.planeCount; i++)
-        {
-            if (verttex.Item1.Count < 3)
-            {
-                return verttex;
-            }
-
-            ClippedVertices.Clear();
-
-            ClippedVertices.AddRange(verttex.Item1);
-
-            ClippedTextures.Clear();
-
-            ClippedTextures.AddRange(verttex.Item2);
-
-            verttex = ClipTriangles((ClippedVertices, ClippedTextures), CamPlanes[i]);
-        }
-
-        return verttex;
-    }
-
-    public List<Vector3> ClippingPlanesLines(List<Vector3> lines, FrustumMeta planes)
-    {
-        for (int i = planes.planeStartIndex; i < planes.planeStartIndex + planes.planeCount; i++)
-        {
-            if (lines.Count < 6 || lines.Count % 2 == 1)
-            {
-                return lines;
-            }
-
-            ClippedVertices.Clear();
-
-            ClippedVertices.AddRange(lines);
-
-            lines = ClipEdges(ClippedVertices, CamPlanes[i]);
-        }
-
-        return lines;
-    }
-
-    public List<Vector3> ClipEdges(List<Vector3> lines, Plane plane)
+    public List<Vector3> ClipEdgesWithPlanes(FrustumMeta planes, PortalMeta portal)
     {
         OutVertices.Clear();
+        ProcessBool.Clear();
+        ProcessVertices.Clear();
 
-        int count = lines.Count;
-
-        if (count < 6 || count % 2 == 1)
+        for (int a = portal.lineStartIndex; a < portal.lineStartIndex + portal.lineCount; a++)
         {
-            return OutVertices;
+            ProcessVertices.Add(LevelLists.edges[a].start);
+            ProcessVertices.Add(LevelLists.edges[a].end);
+            ProcessBool.Add(true);
+            ProcessBool.Add(true);
         }
 
-        int intersection = 0;
-        int inIndex = 0;
-        int outIndex = 0;
-
-        for (int i = 0; i < count; i += 2)
+        for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
         {
-            float d1 = plane.GetDistanceToPoint(lines[i]);
-            float d2 = plane.GetDistanceToPoint(lines[i + 1]);
-            bool b1 = d1 >= 0;
-            bool b2 = d2 >= 0;
+            int intersection = 0;
+            int inIndex = 0;
+            int outIndex = 0;
 
-            int inCount = 0;
+            TemporaryVertices.Clear();
 
-            if (b1)
+            for (int c = 0; c < ProcessVertices.Count; c += 2)
             {
-                inCount += 1;
-            }
-
-            if (b2)
-            {
-                inCount += 1;
-            }
-
-            if (inCount == 2)
-            {
-                OutVertices.Add(lines[i]);
-                OutVertices.Add(lines[i + 1]);
-            }
-            else if (inCount == 1)
-            {
-                if (b1 && !b2)
+                if (ProcessBool[c] == false && ProcessBool[c + 1] == false)
                 {
-                    inIndex = 0;
-                    outIndex = 1;
-                }
-                else if (!b1 && b2)
-                {
-                   inIndex = 1; 
-                   outIndex = 0;
+                    continue;
                 }
 
-                float t = d1 / (d1 - d2);
+                float d1 = CamPlanes[b].GetDistanceToPoint(ProcessVertices[c]);
+                float d2 = CamPlanes[b].GetDistanceToPoint(ProcessVertices[c + 1]);
+                bool b1 = d1 >= 0;
+                bool b2 = d2 >= 0;
 
-                intersectionPoints[outIndex] = Vector3.Lerp(lines[i], lines[i + 1], t);
+                int inCount = 0;
 
-                lineSegment[inIndex] = lines[i + inIndex];
-                lineSegment[outIndex] = intersectionPoints[outIndex];
+                if (b1)
+                {
+                    inCount += 1;
+                }
 
-                OutVertices.Add(lineSegment[0]);
-                OutVertices.Add(lineSegment[1]);
+                if (b2)
+                {
+                    inCount += 1;
+                }
 
-                intersection += 1;
+                if (inCount == 2)
+                {
+                    continue;
+                }
+                else if (inCount == 1)
+                {
+                    if (b1 && !b2)
+                    {
+                        inIndex = 0;
+                        outIndex = 1;
+                    }
+                    else if (!b1 && b2)
+                    {
+                        inIndex = 1;
+                        outIndex = 0;
+                    }
+
+                    float t = d1 / (d1 - d2);
+
+                    intersectionPoints[outIndex] = Vector3.Lerp(ProcessVertices[c], ProcessVertices[c + 1], t);
+
+                    lineSegment[inIndex] = ProcessVertices[c + inIndex];
+                    lineSegment[outIndex] = intersectionPoints[outIndex];
+
+                    TemporaryVertices.Add(lineSegment[0]);
+                    TemporaryVertices.Add(lineSegment[1]);
+
+                    ProcessBool[c] = false;
+                    ProcessBool[c + 1] = false;
+
+                    intersection += 1;
+                }
+                else if (inCount == 0)
+                {
+                    ProcessBool[c] = false;
+                    ProcessBool[c + 1] = false;
+                }
+            }
+
+            if (intersection == 2)
+            {
+                for (int d = 0; d < TemporaryVertices.Count; d += 2)
+                {
+                    ProcessVertices.Add(TemporaryVertices[d]);
+                    ProcessVertices.Add(TemporaryVertices[d + 1]);
+                    ProcessBool.Add(true);
+                    ProcessBool.Add(true);
+                }
+
+                ProcessVertices.Add(intersectionPoints[1]);
+                ProcessVertices.Add(intersectionPoints[0]);
+
+                ProcessBool.Add(true);
+                ProcessBool.Add(true);
             }
         }
-        if (intersection == 2)
+
+        for (int e = 0; e < ProcessBool.Count; e += 2)
         {
-            OutVertices.Add(intersectionPoints[1]);
-            OutVertices.Add(intersectionPoints[0]);
+            if (ProcessBool[e] && ProcessBool[e + 1])
+            {
+                OutVertices.Add(ProcessVertices[e]);
+                OutVertices.Add(ProcessVertices[e + 1]);
+            }
         }
 
         return OutVertices;
@@ -988,22 +1052,8 @@ public class BuildAndRunLevel : MonoBehaviour
     }
 
     public void GetPolygons(FrustumMeta APlanes, SectorMeta BSector)
-    {
-        CombinedVertices.Clear();
-
-        CombinedTextures.Clear();
-
-        for (int e = BSector.opaqueStartIndex; e < BSector.opaqueStartIndex + BSector.opaqueCount; e++)
-        {
-            CombinedVertices.Add(LevelLists.opaques[e].v1);
-            CombinedVertices.Add(LevelLists.opaques[e].v2);
-            CombinedVertices.Add(LevelLists.opaques[e].v3);
-            CombinedTextures.Add(LevelLists.opaques[e].uv1);
-            CombinedTextures.Add(LevelLists.opaques[e].uv2);
-            CombinedTextures.Add(LevelLists.opaques[e].uv3);
-        }
-
-        (List<Vector3>, List<Vector4>) oclippedData = ClippingPlanesForTriangles((CombinedVertices, CombinedTextures), APlanes);
+    { 
+        (List<Vector3>, List<Vector4>) oclippedData = ClipTrianglesWithPlanes(APlanes, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
 
         List<Vector3> overtices = oclippedData.Item1;
 
@@ -1018,21 +1068,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         h += oclippedData.Item1.Count;
 
-        CombinedVertices.Clear();
-
-        CombinedTextures.Clear();
-
-        for (int e = BSector.transparentStartIndex; e < BSector.transparentStartIndex + BSector.transparentCount; e++)
-        {
-            CombinedVertices.Add(LevelLists.transparents[e].v1);
-            CombinedVertices.Add(LevelLists.transparents[e].v2);
-            CombinedVertices.Add(LevelLists.transparents[e].v3);
-            CombinedTextures.Add(LevelLists.transparents[e].uv1);
-            CombinedTextures.Add(LevelLists.transparents[e].uv2);
-            CombinedTextures.Add(LevelLists.transparents[e].uv3);
-        }
-
-        (List<Vector3>, List<Vector4>) tclippedData = ClippingPlanesForTriangles((CombinedVertices, CombinedTextures), APlanes);
+        (List<Vector3>, List<Vector4>) tclippedData = ClipTrianglesWithPlanes(APlanes, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
 
         List<Vector3> tvertices = tclippedData.Item1;
 
@@ -1074,15 +1110,7 @@ public class BuildAndRunLevel : MonoBehaviour
                 continue;
             }
 
-            CombinedVertices.Clear();
-
-            for (int f = LevelLists.portals[i].lineStartIndex; f < LevelLists.portals[i].lineStartIndex + LevelLists.portals[i].lineCount; f++)
-            {
-                CombinedVertices.Add(LevelLists.edges[f].start);
-                CombinedVertices.Add(LevelLists.edges[f].end);
-            }
-
-            List<Vector3> clippedLines = ClippingPlanesLines(CombinedVertices, APlanes);
+            List<Vector3> clippedLines = ClipEdgesWithPlanes(APlanes, LevelLists.portals[i]);
 
             if (clippedLines.Count < 6 || clippedLines.Count % 2 == 1)
             {
