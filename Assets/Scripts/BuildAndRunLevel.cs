@@ -630,7 +630,7 @@ public class BuildAndRunLevel : MonoBehaviour
         Player.Move((targetMovement + currentForce) * speed * Time.deltaTime);
     }
 
-    public (List<Vector3>, List<Vector4>) ClipTrianglesWithPlanes(FrustumMeta planes, int startIndex, int count)
+    public (List<Vector3>, List<Vector4>) ClipTrianglesWithPlanes(FrustumMeta planes, List<Triangle> verttex, int startIndex, int count)
     {
         OutVertices.Clear();
         OutTextures.Clear();
@@ -640,12 +640,12 @@ public class BuildAndRunLevel : MonoBehaviour
 
         for (int a = startIndex; a < count; a++)
         {
-            ProcessVertices.Add(LevelLists.opaques[a].v1);
-            ProcessVertices.Add(LevelLists.opaques[a].v2);
-            ProcessVertices.Add(LevelLists.opaques[a].v3);
-            ProcessTextures.Add(LevelLists.opaques[a].uv1);
-            ProcessTextures.Add(LevelLists.opaques[a].uv2);
-            ProcessTextures.Add(LevelLists.opaques[a].uv3);
+            ProcessVertices.Add(verttex[a].v1);
+            ProcessVertices.Add(verttex[a].v2);
+            ProcessVertices.Add(verttex[a].v3);
+            ProcessTextures.Add(verttex[a].uv1);
+            ProcessTextures.Add(verttex[a].uv2);
+            ProcessTextures.Add(verttex[a].uv3);
             ProcessBool.Add(true);
             ProcessBool.Add(true);
             ProcessBool.Add(true);
@@ -1053,7 +1053,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetPolygons(FrustumMeta APlanes, SectorMeta BSector)
     { 
-        (List<Vector3>, List<Vector4>) oclippedData = ClipTrianglesWithPlanes(APlanes, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
+        (List<Vector3>, List<Vector4>) oclippedData = ClipTrianglesWithPlanes(APlanes, LevelLists.opaques, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
 
         List<Vector3> overtices = oclippedData.Item1;
 
@@ -1068,7 +1068,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         h += oclippedData.Item1.Count;
 
-        (List<Vector3>, List<Vector4>) tclippedData = ClipTrianglesWithPlanes(APlanes, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
+        (List<Vector3>, List<Vector4>) tclippedData = ClipTrianglesWithPlanes(APlanes, LevelLists.transparents, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
 
         List<Vector3> tvertices = tclippedData.Item1;
 
