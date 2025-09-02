@@ -148,8 +148,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private GameObject CollisionObjects;
 
-    private List<int> ProcessBool = new List<int>();
-
     private int[] processbool;
 
     private Vector3[] processvertices;
@@ -161,10 +159,6 @@ public class BuildAndRunLevel : MonoBehaviour
     private Vector4[] temporarytextures;
 
     private List<MathematicalPlane> MathematicalCamPlanes = new List<MathematicalPlane>();
-
-    private List<Vector3> ProcessVertices = new List<Vector3>();
-
-    private List<Vector3> TemporaryVertices = new List<Vector3>();
 
     private List<Vector3> CombinedVertices = new List<Vector3>();
 
@@ -299,15 +293,15 @@ public class BuildAndRunLevel : MonoBehaviour
 
         OneTriangle = new int[3];
 
-        processbool = new int[128];
+        processbool = new int[256];
 
-        processvertices = new Vector3[128];
+        processvertices = new Vector3[256];
 
-        processtextures = new Vector4[128];
+        processtextures = new Vector4[256];
 
-        temporaryvertices = new Vector3[128];
+        temporaryvertices = new Vector3[256];
 
-        temporarytextures = new Vector4[128];
+        temporarytextures = new Vector4[256];
 
         CreateMaterial();
 
@@ -829,8 +823,9 @@ public class BuildAndRunLevel : MonoBehaviour
     public List<Vector3> ClipEdgesWithPlanes(FrustumMeta planes, PortalMeta portal)
     {
         OutVertices.Clear();
-        ProcessBool.Clear();
-        ProcessVertices.Clear();
+
+        int processverticescount = 0;
+        int processboolcount = 0;
 
         Vector3[] lineSegment = new Vector3[2];
 
@@ -838,10 +833,13 @@ public class BuildAndRunLevel : MonoBehaviour
 
         for (int a = portal.lineStartIndex; a < portal.lineStartIndex + portal.lineCount; a++)
         {
-            ProcessVertices.Add(LevelLists.edges[a].start);
-            ProcessVertices.Add(LevelLists.edges[a].end);
-            ProcessBool.Add(0);
-            ProcessBool.Add(0);
+            Edge line = LevelLists.edges[a];
+            processvertices[processverticescount] = line.start;
+            processvertices[processverticescount + 1] = line.end;
+            processverticescount += 2;
+            processbool[processboolcount] = 0;
+            processbool[processboolcount + 1] = 0;
+            processboolcount += 2;
         }
 
         for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
@@ -850,17 +848,17 @@ public class BuildAndRunLevel : MonoBehaviour
             int inIndex = 0;
             int outIndex = 0;
 
-            TemporaryVertices.Clear();
+            int temporaryverticescount = 0;
 
-            for (int c = 0; c < ProcessVertices.Count; c += 2)
+            for (int c = 0; c < processverticescount; c += 2)
             {
-                if (ProcessBool[c] == 1 && ProcessBool[c + 1] == 1)
+                if (processbool[c] == 1 && processbool[c + 1] == 1)
                 {
                     continue;
                 }
 
-                float d1 = GetSignedDistanceToPoint(MathematicalCamPlanes[b], ProcessVertices[c]);
-                float d2 = GetSignedDistanceToPoint(MathematicalCamPlanes[b], ProcessVertices[c + 1]);
+                float d1 = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
+                float d2 = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
                 bool b1 = d1 >= 0;
                 bool b2 = d2 >= 0;
 
@@ -895,50 +893,54 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     float t = d1 / (d1 - d2);
 
-                    intersectionPoints[outIndex] = Vector3.Lerp(ProcessVertices[c], ProcessVertices[c + 1], t);
+                    intersectionPoints[outIndex] = Vector3.Lerp(processvertices[c], processvertices[c + 1], t);
 
-                    lineSegment[inIndex] = ProcessVertices[c + inIndex];
+                    lineSegment[inIndex] = processvertices[c + inIndex];
                     lineSegment[outIndex] = intersectionPoints[outIndex];
 
-                    TemporaryVertices.Add(lineSegment[0]);
-                    TemporaryVertices.Add(lineSegment[1]);
+                    temporaryvertices[temporaryverticescount] = lineSegment[0];
+                    temporaryvertices[temporaryverticescount + 1] = lineSegment[1];
+                    temporaryverticescount += 2;
 
-                    ProcessBool[c] = 1;
-                    ProcessBool[c + 1] = 1;
+                    processbool[c] = 1;
+                    processbool[c + 1] = 1;
 
                     intersection += 1;
                 }
                 else if (inCount == 0)
                 {
-                    ProcessBool[c] = 1;
-                    ProcessBool[c + 1] = 1;
+                    processbool[c] = 1;
+                    processbool[c + 1] = 1;
                 }
             }
 
             if (intersection == 2)
             {
-                for (int d = 0; d < TemporaryVertices.Count; d += 2)
+                for (int d = 0; d < temporaryverticescount; d += 2)
                 {
-                    ProcessVertices.Add(TemporaryVertices[d]);
-                    ProcessVertices.Add(TemporaryVertices[d + 1]);
-                    ProcessBool.Add(0);
-                    ProcessBool.Add(0);
+                    processvertices[processverticescount] = temporaryvertices[d];
+                    processvertices[processverticescount + 1] = temporaryvertices[d + 1];
+                    processverticescount += 2;
+                    processbool[processboolcount] = 0;
+                    processbool[processboolcount + 1] = 0;
+                    processboolcount += 2;
                 }
 
-                ProcessVertices.Add(intersectionPoints[1]);
-                ProcessVertices.Add(intersectionPoints[0]);
-
-                ProcessBool.Add(0);
-                ProcessBool.Add(0);
+                processvertices[processverticescount] = intersectionPoints[1];
+                processvertices[processverticescount + 1] = intersectionPoints[0];
+                processverticescount += 2;
+                processbool[processboolcount] = 0;
+                processbool[processboolcount + 1] = 0;
+                processboolcount += 2;
             }
         }
 
-        for (int e = 0; e < ProcessBool.Count; e += 2)
+        for (int e = 0; e < processboolcount; e += 2)
         {
-            if (ProcessBool[e] == 0 && ProcessBool[e + 1] == 0)
+            if (processbool[e] == 0 && processbool[e + 1] == 0)
             {
-                OutVertices.Add(ProcessVertices[e]);
-                OutVertices.Add(ProcessVertices[e + 1]);
+                OutVertices.Add(processvertices[e]);
+                OutVertices.Add(processvertices[e + 1]);
             }
         }
 
