@@ -351,7 +351,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             Sectors.Clear();
 
-            GetPolyhedrons(CurrentSector);
+            GetSectors(CurrentSector);
 
             MathematicalCamPlanes.Clear();
 
@@ -379,7 +379,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MaxDepth = 0;
 
-            GetPolygons(LevelLists.frustums[LevelLists.frustums.Count - 1], CurrentSector);
+            GetPortals(LevelLists.frustums[LevelLists.frustums.Count - 1], CurrentSector);
 
             SetRenderMeshes();
 
@@ -947,78 +947,6 @@ public class BuildAndRunLevel : MonoBehaviour
         return OutVertices;
     }
 
-    public bool CheckRadius(SectorMeta asector, Vector3 campoint)
-    {
-        for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
-        {
-            if (GetSignedDistanceToPoint(LevelLists.planes[i], campoint) < -0.6f)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public bool CheckPolyhedron(SectorMeta asector, Vector3 campoint)
-    {
-        for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
-        {
-            if (GetSignedDistanceToPoint(LevelLists.planes[i], campoint) < 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public void GetPolyhedrons(SectorMeta ASector)
-    {
-        Sectors.Add(ASector);
-
-        for (int i = ASector.portalStartIndex; i < ASector.portalStartIndex + ASector.portalCount; i++)
-        {
-            int portalnumber = LevelLists.portals[i].connectedSectorID;
-
-            if (Sectors.Contains(LevelLists.sectors[portalnumber]))
-            {
-                continue;
-            }
-
-            t = CheckRadius(LevelLists.sectors[portalnumber], CamPoint);
-
-            if (t == true)
-            {
-                GetPolyhedrons(LevelLists.sectors[portalnumber]);
-
-                continue;
-            }
-        }
-
-        t = CheckPolyhedron(ASector, CamPoint);
-
-        if (t == true)
-        {
-            CurrentSector = ASector;
-
-            if (!OldSectors.SequenceEqual(Sectors))
-            {
-                foreach (SectorMeta sector in OldSectors)
-                {
-                    Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), true);
-                }
-
-                foreach (SectorMeta sector in Sectors)
-                {
-                    Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), false);
-                }
-
-                OldSectors.Clear();
-
-                OldSectors.AddRange(Sectors);
-            }
-        }
-    }
-
     public void SetRenderMeshes()
     {
         opaquemesh.Clear();
@@ -1061,8 +989,83 @@ public class BuildAndRunLevel : MonoBehaviour
         }
     }
 
-    public void GetPolygons(FrustumMeta APlanes, SectorMeta BSector)
-    { 
+    public bool CheckRadius(SectorMeta asector, Vector3 campoint)
+    {
+        for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
+        {
+            if (GetSignedDistanceToPoint(LevelLists.planes[i], campoint) < -0.6f)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public bool CheckSector(SectorMeta asector, Vector3 campoint)
+    {
+        for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
+        {
+            if (GetSignedDistanceToPoint(LevelLists.planes[i], campoint) < 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void GetSectors(SectorMeta ASector)
+    {
+        Sectors.Add(ASector);
+
+        for (int i = ASector.portalStartIndex; i < ASector.portalStartIndex + ASector.portalCount; i++)
+        {
+            int portalnumber = LevelLists.portals[i].connectedSectorID;
+
+            if (Sectors.Contains(LevelLists.sectors[portalnumber]))
+            {
+                continue;
+            }
+
+            t = CheckRadius(LevelLists.sectors[portalnumber], CamPoint);
+
+            if (t == true)
+            {
+                GetSectors(LevelLists.sectors[portalnumber]);
+
+                continue;
+            }
+        }
+
+        t = CheckSector(ASector, CamPoint);
+
+        if (t == true)
+        {
+            CurrentSector = ASector;
+
+            if (!OldSectors.SequenceEqual(Sectors))
+            {
+                foreach (SectorMeta sector in OldSectors)
+                {
+                    Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), true);
+                }
+
+                foreach (SectorMeta sector in Sectors)
+                {
+                    Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), false);
+                }
+
+                OldSectors.Clear();
+
+                foreach (SectorMeta sector in Sectors)
+                {
+                    OldSectors.Add(sector);
+                }
+            }
+        }
+    }
+
+    public void GetTriangles(FrustumMeta APlanes, SectorMeta BSector)
+    {
         (List<Vector3>, List<Vector4>) oclippedData = ClipTrianglesWithPlanes(APlanes, LevelLists.opaques, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
 
         List<Vector3> overtices = oclippedData.Item1;
@@ -1092,6 +1095,11 @@ public class BuildAndRunLevel : MonoBehaviour
         }
 
         y += tclippedData.Item1.Count;
+    }
+
+    public void GetPortals(FrustumMeta APlanes, SectorMeta BSector)
+    {
+        GetTriangles(APlanes, BSector);
 
         for (int i = BSector.portalStartIndex; i < BSector.portalStartIndex + BSector.portalCount; i++)
         {
@@ -1115,7 +1123,7 @@ public class BuildAndRunLevel : MonoBehaviour
             {
                 MaxDepth += 1;
 
-                GetPolygons(APlanes, LevelLists.sectors[sectornumber]);
+                GetPortals(APlanes, LevelLists.sectors[sectornumber]);
 
                 continue;
             }
@@ -1131,7 +1139,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MaxDepth += 1;
 
-            GetPolygons(LevelLists.frustums[portalnumber], LevelLists.sectors[sectornumber]);
+            GetPortals(LevelLists.frustums[portalnumber], LevelLists.sectors[sectornumber]);
         }
     }
 
