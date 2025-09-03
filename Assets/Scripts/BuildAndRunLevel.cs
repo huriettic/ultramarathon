@@ -609,7 +609,7 @@ public class BuildAndRunLevel : MonoBehaviour
         Player.Move((targetMovement + currentForce) * speed * Time.deltaTime);
     }
 
-    public float GetSignedDistanceToPoint(MathematicalPlane plane, Vector3 point)
+    public float SignedDistanceToPoint(MathematicalPlane plane, Vector3 point)
     {
         return Vector3.Dot(plane.normal, point) + plane.distance;
     }
@@ -663,9 +663,9 @@ public class BuildAndRunLevel : MonoBehaviour
                         continue;
                     }
 
-                    planeDist[0] = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
-                    planeDist[1] = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
-                    planeDist[2] = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 2]);
+                    planeDist[0] = SignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
+                    planeDist[1] = SignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
+                    planeDist[2] = SignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 2]);
                     bool b1 = planeDist[0] >= 0;
                     bool b2 = planeDist[1] >= 0;
                     bool b3 = planeDist[2] >= 0;
@@ -857,8 +857,8 @@ public class BuildAndRunLevel : MonoBehaviour
                     continue;
                 }
 
-                float d1 = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
-                float d2 = GetSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
+                float d1 = SignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
+                float d2 = SignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
                 bool b1 = d1 >= 0;
                 bool b2 = d2 >= 0;
 
@@ -993,7 +993,7 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
         {
-            if (GetSignedDistanceToPoint(LevelLists.planes[i], campoint) < -0.6f)
+            if (SignedDistanceToPoint(LevelLists.planes[i], campoint) < -0.6f)
             {
                 return false;
             }
@@ -1005,7 +1005,7 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
         {
-            if (GetSignedDistanceToPoint(LevelLists.planes[i], campoint) < 0)
+            if (SignedDistanceToPoint(LevelLists.planes[i], campoint) < 0)
             {
                 return false;
             }
@@ -1108,7 +1108,7 @@ public class BuildAndRunLevel : MonoBehaviour
                 continue;
             }
 
-            d = GetSignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
+            d = SignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
 
             if (d < -0.1f || d <= 0 || d == 0)
             {
