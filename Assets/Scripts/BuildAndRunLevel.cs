@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using Weland;
@@ -95,6 +96,10 @@ public struct SectorMeta
 
 public class BuildAndRunLevel : MonoBehaviour
 {
+    public bool SaveTheLevel = false;
+
+    public bool LevelIsSaved = false;
+
     public string Name = "Tutorial";
 
     public string Textures = "Textures";
@@ -279,16 +284,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
         LoadLevel();
 
-        BuildLines();
-
-        BuildPolygons();
-
-        BuildObjects();
-
-        BuildLights();
-
-        BuildTheLists();
-
         LightColor = new Color[LevelLists.colors.Count];
 
         OneTriangle = new int[3];
@@ -404,32 +399,79 @@ public class BuildAndRunLevel : MonoBehaviour
         }
     }
 
+    public void SaveLevel()
+    {
+        try
+        {
+            string saveData = JsonUtility.ToJson(LevelLists, true);
+            string path = Path.Combine(Application.persistentDataPath, Name + ".txt");
+
+            File.WriteAllText(path, saveData);
+            Debug.Log("Data saved successfully to " + path);
+        }
+        catch (Exception exit)
+        {
+            Debug.LogError("Failed to save data: " + exit.Message);
+        }
+    }
+
     public void LoadLevel()
     {
-        MapFile map = new MapFile();
+        if (LevelIsSaved == false)
+        {
+            Debug.Log("This is a .sceA file.");
 
-        level = new Level();
+            MapFile map = new MapFile();
 
-        try
-        {
-            // Change name to load a different map
-            map.Load(Application.streamingAssetsPath + "/" + Name + ".sceA");
-            Debug.Log("Map loaded successfully!");
-        }
-        catch (Exception exit)
-        {
-            Debug.LogError("Failed to load Map: " + exit.Message);
-        }
+            level = new Level();
 
-        try
-        {
-            // Change the map directory number if the map has more than one level 
-            level.Load(map.Directory[LevelNumber]);
-            Debug.Log("Level loaded successfully!");
+            try
+            {
+                // Change name to load a different map
+                map.Load(Path.Combine(Application.streamingAssetsPath, Name + ".sceA"));
+                Debug.Log("Map loaded successfully!");
+            }
+            catch (Exception exit)
+            {
+                Debug.LogError("Failed to load Map: " + exit.Message);
+            }
+
+            try
+            {
+                // Change the map directory number if the map has more than one level 
+                level.Load(map.Directory[LevelNumber]);
+                Debug.Log("Level loaded successfully!");
+            }
+            catch (Exception exit)
+            {
+                Debug.LogError("Failed to load level: " + exit.Message);
+            }
+
+            BuildLines();
+
+            BuildPolygons();
+
+            BuildObjects();
+
+            BuildLights();
+
+            BuildTheLists();
+
+            if (SaveTheLevel)
+            {
+                SaveLevel();
+            }
         }
-        catch (Exception exit)
+        else if (LevelIsSaved)
         {
-            Debug.LogError("Failed to load level: " + exit.Message);
+            Debug.Log("This is a .txt file.");
+
+            string path = Path.Combine(Application.persistentDataPath, Name + ".txt");
+            if (File.Exists(path))
+            {
+                string json = File.ReadAllText(path);
+                LevelLists = JsonUtility.FromJson<TopLevelLists>(json);
+            }
         }
     }
 

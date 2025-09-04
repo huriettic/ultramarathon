@@ -395,6 +395,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8f4c10ec703a9684da3694216218a7ff, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  SaveTheLevel: 0
+  LevelIsSaved: 0
   Name: Tutorial
   Textures: Textures
   LevelNumber: 0
