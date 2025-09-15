@@ -25,16 +25,9 @@ public struct MathematicalPlane
 [Serializable]
 public struct Triangle
 {
-    public Vector3 v1, v2, v3;
-    public Vector4 uv1, uv2, uv3;
+    public Vector3 v0, v1, v2;
+    public Vector4 uv0, uv1, uv2;
 
-    public int sectorID;
-};
-
-[Serializable]
-public struct Collisions
-{
-    public Vector3 v1, v2, v3;
     public int sectorID;
 };
 
@@ -153,7 +146,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private GameObject CollisionObjects;
 
-    private int[] processbool;
+    private bool[] processbool;
 
     private Vector3[] processvertices;
 
@@ -164,10 +157,6 @@ public class BuildAndRunLevel : MonoBehaviour
     private Vector4[] temporarytextures;
 
     private List<MathematicalPlane> MathematicalCamPlanes = new List<MathematicalPlane>();
-
-    private List<Vector3> CombinedVertices = new List<Vector3>();
-
-    private List<int> CombinedTriangles = new List<int>();
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
@@ -187,11 +176,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private List<GameObject> CollisionSectors = new List<GameObject>();
 
-    private List<Vector3> OutVertices = new List<Vector3>();
+    private List<Vector3> OutTriangleVertices = new List<Vector3>();
 
-    private List<Vector4> OutTextures = new List<Vector4>();
+    private List<Vector4> OutTriangleTextures = new List<Vector4>();
 
-    private Matrix4x4 matrix;
+    private List<Vector3> OutEdgeVertices = new List<Vector3>();
 
     private Material opaquematerial;
 
@@ -210,7 +199,7 @@ public class BuildAndRunLevel : MonoBehaviour
         public List<LevelLight> colors = new List<LevelLight>();
         public List<Triangle> opaques = new List<Triangle>();
         public List<Triangle> transparents = new List<Triangle>();
-        public List<Collisions> collisions = new List<Collisions>();
+        public List<Triangle> collisions = new List<Triangle>();
         public List<FrustumMeta> frustums = new List<FrustumMeta>();
         public List<MathematicalPlane> planes = new List<MathematicalPlane>();
         public List<Edge> edges = new List<Edge>();
@@ -288,7 +277,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         OneTriangle = new int[3];
 
-        processbool = new int[256];
+        processbool = new bool[256];
 
         processvertices = new Vector3[256];
 
@@ -309,8 +298,6 @@ public class BuildAndRunLevel : MonoBehaviour
         transparentmesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
         rp = new RenderParams();
-
-        matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one);
 
         CollisionObjects = new GameObject("Collision Meshes");
 
@@ -583,29 +570,30 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         for (int i = 0; i < LevelLists.sectors.Count; i++)
         {
-            CombinedVertices.Clear();
+            OpaqueVertices.Clear();
 
-            CombinedTriangles.Clear();
+            OpaqueTriangles.Clear();
+
+            int triangleCount = 0;
 
             for (int e = LevelLists.sectors[i].collisionStartIndex; e < LevelLists.sectors[i].collisionStartIndex + LevelLists.sectors[i].collisionCount; e++)
             {
-                CombinedVertices.Add(LevelLists.collisions[e].v1);
-                CombinedVertices.Add(LevelLists.collisions[e].v2);
-                CombinedVertices.Add(LevelLists.collisions[e].v3);
-            }
-
-            for (int e = 0; e < CombinedVertices.Count; e++)
-            {
-                CombinedTriangles.Add(e);
+                OpaqueVertices.Add(LevelLists.collisions[e].v0);
+                OpaqueVertices.Add(LevelLists.collisions[e].v1);
+                OpaqueVertices.Add(LevelLists.collisions[e].v2);
+                OpaqueTriangles.Add(triangleCount);
+                OpaqueTriangles.Add(triangleCount + 1);
+                OpaqueTriangles.Add(triangleCount + 2);
+                triangleCount += 3;
             }
 
             Mesh combinedmesh = new Mesh();
 
             CollisionMesh.Add(combinedmesh);
 
-            combinedmesh.SetVertices(CombinedVertices);
+            combinedmesh.SetVertices(OpaqueVertices);
 
-            combinedmesh.SetTriangles(CombinedTriangles, 0);
+            combinedmesh.SetTriangles(OpaqueTriangles, 0);
 
             GameObject meshObject = new GameObject("Collision " + i);
 
@@ -656,10 +644,10 @@ public class BuildAndRunLevel : MonoBehaviour
         return Vector3.Dot(plane.normal, point) + plane.distance;
     }
 
-    public (List<Vector3>, List<Vector4>) ClipTrianglesWithPlanes(FrustumMeta planes, List<Triangle> verttex, int startIndex, int count)
+    public void ClipTrianglesWithPlanes(FrustumMeta planes, List<Triangle> verttex, int startIndex, int count)
     {
-        OutVertices.Clear();
-        OutTextures.Clear();
+        OutTriangleVertices.Clear();
+        OutTriangleTextures.Clear();
         
         float[] planeDist = new float[3];
 
@@ -670,17 +658,17 @@ public class BuildAndRunLevel : MonoBehaviour
             int processboolcount = 0;
 
             Triangle tri = verttex[a];
-            processvertices[processverticescount] = tri.v1;
-            processvertices[processverticescount + 1] = tri.v2;
-            processvertices[processverticescount + 2] = tri.v3;
+            processvertices[processverticescount] = tri.v0;
+            processvertices[processverticescount + 1] = tri.v1;
+            processvertices[processverticescount + 2] = tri.v2;
             processverticescount += 3;
-            processtextures[processtexturescount] = tri.uv1;
-            processtextures[processtexturescount + 1] = tri.uv2;
-            processtextures[processtexturescount + 2] = tri.uv3;
+            processtextures[processtexturescount] = tri.uv0;
+            processtextures[processtexturescount + 1] = tri.uv1;
+            processtextures[processtexturescount + 2] = tri.uv2;
             processtexturescount += 3;
-            processbool[processboolcount] = 0;
-            processbool[processboolcount + 1] = 0;
-            processbool[processboolcount + 2] = 0;
+            processbool[processboolcount] = true;
+            processbool[processboolcount + 1] = true;
+            processbool[processboolcount + 2] = true;
             processboolcount += 3;
 
             for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
@@ -700,7 +688,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 for (int c = 0; c < processverticescount; c += 3)
                 {
-                    if (processbool[c] == 1 && processbool[c + 1] == 1 && processbool[c + 2] == 1)
+                    if (processbool[c] == false && processbool[c + 1] == false && processbool[c + 2] == false)
                     {
                         continue;
                     }
@@ -766,9 +754,9 @@ public class BuildAndRunLevel : MonoBehaviour
                         temporarytextures[temporarytexturescount + 2] = Vector4.Lerp(processtextures[c + inIndex], processtextures[c + outIndex2], t2);
                         temporarytexturescount += 3;
 
-                        processbool[c] = 1;
-                        processbool[c + 1] = 1;
-                        processbool[c + 2] = 1;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
 
                         AddTriangles += 1;
                     }
@@ -811,17 +799,17 @@ public class BuildAndRunLevel : MonoBehaviour
                         temporarytextures[temporarytexturescount + 5] = Vector4.Lerp(processtextures[c + inIndex2], processtextures[c + outIndex], t2);
                         temporarytexturescount += 6;
 
-                        processbool[c] = 1;
-                        processbool[c + 1] = 1;
-                        processbool[c + 2] = 1;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
 
                         AddTriangles += 2;
                     }
                     else if (inCount == 0)
                     {
-                        processbool[c] = 1;
-                        processbool[c + 1] = 1;
-                        processbool[c + 2] = 1;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
                     }
                 }
 
@@ -837,9 +825,9 @@ public class BuildAndRunLevel : MonoBehaviour
                         processtextures[processtexturescount + 1] = temporarytextures[d + 1];
                         processtextures[processtexturescount + 2] = temporarytextures[d + 2];
                         processtexturescount += 3;
-                        processbool[processboolcount] = 0;
-                        processbool[processboolcount + 1] = 0;
-                        processbool[processboolcount + 2] = 0;
+                        processbool[processboolcount] = true;
+                        processbool[processboolcount + 1] = true;
+                        processbool[processboolcount + 2] = true;
                         processboolcount += 3;
                     }
                 }
@@ -847,24 +835,22 @@ public class BuildAndRunLevel : MonoBehaviour
 
             for (int e = 0; e < processboolcount; e += 3)
             {
-                if (processbool[e] == 0 && processbool[e + 1] == 0 && processbool[e + 2] == 0)
+                if (processbool[e] == true && processbool[e + 1] == true && processbool[e + 2] == true)
                 {
-                    OutVertices.Add(processvertices[e]);
-                    OutVertices.Add(processvertices[e + 1]);
-                    OutVertices.Add(processvertices[e + 2]);
-                    OutTextures.Add(processtextures[e]);
-                    OutTextures.Add(processtextures[e + 1]);
-                    OutTextures.Add(processtextures[e + 2]);
+                    OutTriangleVertices.Add(processvertices[e]);
+                    OutTriangleVertices.Add(processvertices[e + 1]);
+                    OutTriangleVertices.Add(processvertices[e + 2]);
+                    OutTriangleTextures.Add(processtextures[e]);
+                    OutTriangleTextures.Add(processtextures[e + 1]);
+                    OutTriangleTextures.Add(processtextures[e + 2]);
                 }
             }
         }
-
-        return (OutVertices, OutTextures);
     }
 
-    public List<Vector3> ClipEdgesWithPlanes(FrustumMeta planes, PortalMeta portal)
+    public void ClipEdgesWithPlanes(FrustumMeta planes, PortalMeta portal)
     {
-        OutVertices.Clear();
+        OutEdgeVertices.Clear();
 
         int processverticescount = 0;
         int processboolcount = 0;
@@ -879,8 +865,8 @@ public class BuildAndRunLevel : MonoBehaviour
             processvertices[processverticescount] = line.start;
             processvertices[processverticescount + 1] = line.end;
             processverticescount += 2;
-            processbool[processboolcount] = 0;
-            processbool[processboolcount + 1] = 0;
+            processbool[processboolcount] = true;
+            processbool[processboolcount + 1] = true;
             processboolcount += 2;
         }
 
@@ -894,7 +880,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             for (int c = 0; c < processverticescount; c += 2)
             {
-                if (processbool[c] == 1 && processbool[c + 1] == 1)
+                if (processbool[c] == false && processbool[c + 1] == false)
                 {
                     continue;
                 }
@@ -944,15 +930,15 @@ public class BuildAndRunLevel : MonoBehaviour
                     temporaryvertices[temporaryverticescount + 1] = lineSegment[1];
                     temporaryverticescount += 2;
 
-                    processbool[c] = 1;
-                    processbool[c + 1] = 1;
+                    processbool[c] = false;
+                    processbool[c + 1] = false;
 
                     intersection += 1;
                 }
                 else if (inCount == 0)
                 {
-                    processbool[c] = 1;
-                    processbool[c + 1] = 1;
+                    processbool[c] = false;
+                    processbool[c + 1] = false;
                 }
             }
 
@@ -963,30 +949,28 @@ public class BuildAndRunLevel : MonoBehaviour
                     processvertices[processverticescount] = temporaryvertices[d];
                     processvertices[processverticescount + 1] = temporaryvertices[d + 1];
                     processverticescount += 2;
-                    processbool[processboolcount] = 0;
-                    processbool[processboolcount + 1] = 0;
+                    processbool[processboolcount] = true;
+                    processbool[processboolcount + 1] = true;
                     processboolcount += 2;
                 }
 
                 processvertices[processverticescount] = intersectionPoints[1];
                 processvertices[processverticescount + 1] = intersectionPoints[0];
                 processverticescount += 2;
-                processbool[processboolcount] = 0;
-                processbool[processboolcount + 1] = 0;
+                processbool[processboolcount] = true;
+                processbool[processboolcount + 1] = true;
                 processboolcount += 2;
             }
         }
 
         for (int e = 0; e < processboolcount; e += 2)
         {
-            if (processbool[e] == 0 && processbool[e + 1] == 0)
+            if (processbool[e] == true && processbool[e + 1] == true)
             {
-                OutVertices.Add(processvertices[e]);
-                OutVertices.Add(processvertices[e + 1]);
+                OutEdgeVertices.Add(processvertices[e]);
+                OutEdgeVertices.Add(processvertices[e + 1]);
             }
         }
-
-        return OutVertices;
     }
 
     public void SetRenderMeshes()
@@ -1021,13 +1005,13 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         rp.material = opaquematerial;
 
-        Graphics.RenderMesh(rp, opaquemesh, 0, matrix);
+        Graphics.RenderMesh(rp, opaquemesh, 0, Matrix4x4.identity);
 
         rp.material = transparentmaterial;
 
         for (int i = TransparentTriangles.Count - 1; i >= 0; i -= 3)
         {
-            Graphics.RenderMesh(rp, transparentmesh, i / 3, matrix);
+            Graphics.RenderMesh(rp, transparentmesh, i / 3, Matrix4x4.identity);
         }
     }
 
@@ -1108,35 +1092,45 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetTriangles(FrustumMeta APlanes, SectorMeta BSector)
     {
-        (List<Vector3>, List<Vector4>) oclippedData = ClipTrianglesWithPlanes(APlanes, LevelLists.opaques, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
+        int triangleCount = 0;
 
-        List<Vector3> overtices = oclippedData.Item1;
+        ClipTrianglesWithPlanes(APlanes, LevelLists.opaques, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
 
-        List<Vector4> otextures = oclippedData.Item2;
-
-        for (int e = 0; e < oclippedData.Item1.Count; e++)
+        for (int e = 0; e < OutTriangleVertices.Count; e += 3)
         {
-            OpaqueVertices.Add(overtices[e]);
-            OpaqueTextures.Add(otextures[e]);
-            OpaqueTriangles.Add(e + h);
+            OpaqueVertices.Add(OutTriangleVertices[e]);
+            OpaqueVertices.Add(OutTriangleVertices[e + 1]);
+            OpaqueVertices.Add(OutTriangleVertices[e + 2]);
+            OpaqueTextures.Add(OutTriangleTextures[e]);
+            OpaqueTextures.Add(OutTriangleTextures[e + 1]);
+            OpaqueTextures.Add(OutTriangleTextures[e + 2]);
+            OpaqueTriangles.Add(triangleCount + h);
+            OpaqueTriangles.Add(triangleCount + 1 + h);
+            OpaqueTriangles.Add(triangleCount + 2 + h);
+            triangleCount += 3;
         }
 
-        h += oclippedData.Item1.Count;
+        h += OutTriangleVertices.Count;
 
-        (List<Vector3>, List<Vector4>) tclippedData = ClipTrianglesWithPlanes(APlanes, LevelLists.transparents, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
+        triangleCount = 0;
 
-        List<Vector3> tvertices = tclippedData.Item1;
+        ClipTrianglesWithPlanes(APlanes, LevelLists.transparents, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
 
-        List<Vector4> ttextures = tclippedData.Item2;
-
-        for (int e = 0; e < tclippedData.Item1.Count; e++)
+        for (int e = 0; e < OutTriangleVertices.Count; e += 3)
         {
-            TransparentVertices.Add(tvertices[e]);
-            TransparentTextures.Add(ttextures[e]);
-            TransparentTriangles.Add(e + y);
+            TransparentVertices.Add(OutTriangleVertices[e]);
+            TransparentVertices.Add(OutTriangleVertices[e + 1]);
+            TransparentVertices.Add(OutTriangleVertices[e + 2]);
+            TransparentTextures.Add(OutTriangleTextures[e]);
+            TransparentTextures.Add(OutTriangleTextures[e + 1]);
+            TransparentTextures.Add(OutTriangleTextures[e + 2]);
+            TransparentTriangles.Add(triangleCount + y);
+            TransparentTriangles.Add(triangleCount + 1 + y);
+            TransparentTriangles.Add(triangleCount + 2 + y);
+            triangleCount += 3;
         }
 
-        y += tclippedData.Item1.Count;
+        y += OutTriangleVertices.Count;
     }
 
     public void GetPortals(FrustumMeta APlanes, SectorMeta BSector)
@@ -1152,7 +1146,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             d = GetPlaneSignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
 
-            if (d < -0.1f || d <= 0 || d == 0)
+            if (d <= 0)
             {
                 continue;
             }
@@ -1170,14 +1164,14 @@ public class BuildAndRunLevel : MonoBehaviour
                 continue;
             }
 
-            List<Vector3> clippedLines = ClipEdgesWithPlanes(APlanes, LevelLists.portals[i]);
+            ClipEdgesWithPlanes(APlanes, LevelLists.portals[i]);
 
-            if (clippedLines.Count < 6 || clippedLines.Count % 2 == 1)
+            if (OutEdgeVertices.Count < 6 || OutEdgeVertices.Count % 2 == 1)
             {
                 continue;
             }
 
-            SetClippingPlanes(clippedLines, portalnumber, CamPoint);
+            SetClippingPlanes(OutEdgeVertices, portalnumber, CamPoint);
 
             MaxDepth += 1;
 
@@ -1305,12 +1299,12 @@ public class BuildAndRunLevel : MonoBehaviour
                     {
                         Triangle otriangle = new Triangle();
 
-                        otriangle.v1 = mesh.vertices[mesh.triangles[i]];
-                        otriangle.v2 = mesh.vertices[mesh.triangles[i + 1]];
-                        otriangle.v3 = mesh.vertices[mesh.triangles[i + 2]];
-                        otriangle.uv1 = uvVector4[mesh.triangles[i]];
-                        otriangle.uv2 = uvVector4[mesh.triangles[i + 1]];
-                        otriangle.uv3 = uvVector4[mesh.triangles[i + 2]];
+                        otriangle.v0 = mesh.vertices[mesh.triangles[i]];
+                        otriangle.v1 = mesh.vertices[mesh.triangles[i + 1]];
+                        otriangle.v2 = mesh.vertices[mesh.triangles[i + 2]];
+                        otriangle.uv0 = uvVector4[mesh.triangles[i]];
+                        otriangle.uv1 = uvVector4[mesh.triangles[i + 1]];
+                        otriangle.uv2 = uvVector4[mesh.triangles[i + 2]];
 
                         otriangle.sectorID = h;
 
@@ -1326,11 +1320,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     for (int i = 0; i < mesh.triangles.Length; i += 3)
                     {
-                        Collisions ctriangle = new Collisions();
+                        Triangle ctriangle = new Triangle();
 
-                        ctriangle.v1 = mesh.vertices[mesh.triangles[i]];
-                        ctriangle.v2 = mesh.vertices[mesh.triangles[i + 1]];
-                        ctriangle.v3 = mesh.vertices[mesh.triangles[i + 2]];
+                        ctriangle.v0 = mesh.vertices[mesh.triangles[i]];
+                        ctriangle.v1 = mesh.vertices[mesh.triangles[i + 1]];
+                        ctriangle.v2 = mesh.vertices[mesh.triangles[i + 2]];
 
                         ctriangle.sectorID = h;
 
@@ -1352,12 +1346,12 @@ public class BuildAndRunLevel : MonoBehaviour
                     {
                         Triangle ttriangle = new Triangle();
 
-                        ttriangle.v1 = mesh.vertices[mesh.triangles[i]];
-                        ttriangle.v2 = mesh.vertices[mesh.triangles[i + 1]];
-                        ttriangle.v3 = mesh.vertices[mesh.triangles[i + 2]];
-                        ttriangle.uv1 = uvVector4[mesh.triangles[i]];
-                        ttriangle.uv2 = uvVector4[mesh.triangles[i + 1]];
-                        ttriangle.uv3 = uvVector4[mesh.triangles[i + 2]];
+                        ttriangle.v0 = mesh.vertices[mesh.triangles[i]];
+                        ttriangle.v1 = mesh.vertices[mesh.triangles[i + 1]];
+                        ttriangle.v2 = mesh.vertices[mesh.triangles[i + 2]];
+                        ttriangle.uv0 = uvVector4[mesh.triangles[i]];
+                        ttriangle.uv1 = uvVector4[mesh.triangles[i + 1]];
+                        ttriangle.uv2 = uvVector4[mesh.triangles[i + 2]];
 
                         ttriangle.sectorID = h;
 
