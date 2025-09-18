@@ -104,13 +104,15 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public int LevelNumber;
 
-    private float d;
+    private float planeDistance;
 
-    private int h;
+    private bool radius;
 
-    private int y;
+    private bool check;
 
-    private bool t;
+    private int opaqueCount;
+
+    private int transparentCount;
 
     private int MaxDepth;
 
@@ -355,9 +357,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
             TransparentTriangles.Clear();
 
-            h = 0;
+            opaqueCount = 0;
 
-            y = 0;
+            transparentCount = 0;
 
             MaxDepth = 0;
 
@@ -1052,9 +1054,9 @@ public class BuildAndRunLevel : MonoBehaviour
                 continue;
             }
 
-            t = CheckRadius(LevelLists.sectors[portalnumber], CamPoint);
+            radius = CheckRadius(LevelLists.sectors[portalnumber], CamPoint);
 
-            if (t == true)
+            if (radius == true)
             {
                 GetSectors(LevelLists.sectors[portalnumber]);
 
@@ -1062,9 +1064,9 @@ public class BuildAndRunLevel : MonoBehaviour
             }
         }
 
-        t = CheckSector(ASector, CamPoint);
+        check = CheckSector(ASector, CamPoint);
 
-        if (t == true)
+        if (check == true)
         {
             CurrentSector = ASector;
 
@@ -1092,8 +1094,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetTriangles(FrustumMeta APlanes, SectorMeta BSector)
     {
-        int triangleCount = 0;
-
         ClipTrianglesWithPlanes(APlanes, LevelLists.opaques, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
 
         for (int e = 0; e < OutTriangleVertices.Count; e += 3)
@@ -1104,15 +1104,11 @@ public class BuildAndRunLevel : MonoBehaviour
             OpaqueTextures.Add(OutTriangleTextures[e]);
             OpaqueTextures.Add(OutTriangleTextures[e + 1]);
             OpaqueTextures.Add(OutTriangleTextures[e + 2]);
-            OpaqueTriangles.Add(triangleCount + h);
-            OpaqueTriangles.Add(triangleCount + 1 + h);
-            OpaqueTriangles.Add(triangleCount + 2 + h);
-            triangleCount += 3;
+            OpaqueTriangles.Add(opaqueCount);
+            OpaqueTriangles.Add(opaqueCount + 1);
+            OpaqueTriangles.Add(opaqueCount + 2);
+            opaqueCount += 3;
         }
-
-        h += OutTriangleVertices.Count;
-
-        triangleCount = 0;
 
         ClipTrianglesWithPlanes(APlanes, LevelLists.transparents, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
 
@@ -1124,13 +1120,11 @@ public class BuildAndRunLevel : MonoBehaviour
             TransparentTextures.Add(OutTriangleTextures[e]);
             TransparentTextures.Add(OutTriangleTextures[e + 1]);
             TransparentTextures.Add(OutTriangleTextures[e + 2]);
-            TransparentTriangles.Add(triangleCount + y);
-            TransparentTriangles.Add(triangleCount + 1 + y);
-            TransparentTriangles.Add(triangleCount + 2 + y);
-            triangleCount += 3;
+            TransparentTriangles.Add(transparentCount);
+            TransparentTriangles.Add(transparentCount + 1);
+            TransparentTriangles.Add(transparentCount + 2);
+            transparentCount += 3;
         }
-
-        y += OutTriangleVertices.Count;
     }
 
     public void GetPortals(FrustumMeta APlanes, SectorMeta BSector)
@@ -1144,9 +1138,9 @@ public class BuildAndRunLevel : MonoBehaviour
                 continue;
             }
 
-            d = GetPlaneSignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
+            planeDistance = GetPlaneSignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
 
-            if (d <= 0)
+            if (planeDistance <= 0)
             {
                 continue;
             }
