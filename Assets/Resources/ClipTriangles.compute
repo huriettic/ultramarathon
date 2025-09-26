@@ -1,0 +1,249 @@
+#pragma kernel CSMain
+
+struct Triangle
+{
+    float3 v0, v1, v2;
+    float4 uv0, uv1, uv2;
+};
+
+struct MathematicalPlane
+{
+    float3 normal;
+    float distance;
+};
+
+struct FrustumMeta
+{
+    int planeStartIndex;
+    int planeCount;
+
+    int frustumID;
+};
+
+AppendStructuredBuffer<Triangle> outputTriangleBuffer;
+StructuredBuffer<Triangle> inputTriangleBuffer;
+StructuredBuffer<MathematicalPlane> planeBuffer;
+StructuredBuffer<FrustumMeta> frustumBuffer;
+RWStructuredBuffer<float3> processVertices;
+RWStructuredBuffer<float4> processTextures;
+RWStructuredBuffer<bool> processBool;
+RWStructuredBuffer<float3> temporaryVertices;
+RWStructuredBuffer<float4> temporaryTextures;
+RWStructuredBuffer<uint> argsBuffer;
+
+float4 CamPosition;
+float planeDist[3];
+
+[numthreads(1, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    Triangle intri = inputTriangleBuffer[id];
+    
+    FrustumMeta frustum = frustumBuffer[id];
+    
+    uint baseIndex = id * 256;
+    
+    float3 edge1 = intri.v1 - intri.v0;
+    float3 edge2 = intri.v2 - intri.v0;
+    float3 normal = normalize(cross(edge1, edge2));
+    float3 camDir = normalize(CamPosition.xyz - intri.v0);
+    float triangleDirection = dot(normal, camDir);
+
+    if (triangleDirection < 0)
+    {
+        return;
+    }
+    
+    uint processverticescount = 0;
+    uint processtexturescount = 0;
+    uint processboolcount = 0;
+    
+    processVertices[baseIndex + processverticescount] = intri.v0;
+    processVertices[baseIndex + processverticescount + 1] = intri.v1;
+    processVertices[baseIndex + processverticescount + 2] = intri.v2;
+    processverticescount += 3;
+    processTextures[baseIndex + processtexturescount] = intri.uv0;
+    processTextures[baseIndex + processtexturescount + 1] = intri.uv1;
+    processTextures[baseIndex + processtexturescount + 2] = intri.uv2;
+    processtexturescount += 3;
+    processBool[baseIndex + processboolcount] = true;
+    processBool[baseIndex + processboolcount + 1] = true;
+    processBool[baseIndex + processboolcount + 2] = true;
+    processboolcount += 3;
+    
+    for (int b = frustum.planeStartIndex; b < frustum.planeStartIndex + frustum.planeCount; b++)
+    {
+        uint inIndex = 0;
+        uint outIndex1 = 0;
+        uint outIndex2 = 0;
+        uint outIndex = 0;
+        uint inIndex1 = 0;
+        uint inIndex2 = 0;
+        uint AddTriangles = 0;
+        uint temporaryverticescount = 0;
+        uint temporarytexturescount = 0;
+    
+        for (uint c = baseIndex; c < baseIndex + processverticescount; c += 3)
+        {
+            if (processBool[c] == false && processBool[c + 1] == false && processBool[c + 2] == false)
+            {
+                continue;
+            }
+
+            planeDist[0] = dot(planeBuffer[b].normal, processVertices[c]) + (planeBuffer[b].distance);
+            planeDist[1] = dot(planeBuffer[b].normal, processVertices[c + 1]) + (planeBuffer[b].distance);
+            planeDist[2] = dot(planeBuffer[b].normal, processVertices[c + 2]) + (planeBuffer[b].distance);
+            bool b1 = planeDist[0] >= 0;
+            bool b2 = planeDist[1] >= 0;
+            bool b3 = planeDist[2] >= 0;
+            
+            uint inCount = 0;
+
+            if (b1)
+            {
+                inCount += 1;
+            }
+
+            if (b2)
+            {
+                inCount += 1;
+            }
+
+            if (b3)
+            {
+                inCount += 1;
+            }
+
+            if (inCount == 3)
+            {
+                continue;
+            }
+            else if (inCount == 1)
+            {
+                if (b1 && !b2 && !b3)
+                {
+                    inIndex = 0;
+                    outIndex1 = 1;
+                    outIndex2 = 2;
+                }
+                else if (!b1 && b2 && !b3)
+                {
+                    outIndex1 = 2;
+                    inIndex = 1;
+                    outIndex2 = 0;
+                }
+                else if (!b1 && !b2 && b3)
+                {
+                    outIndex1 = 0;
+                    outIndex2 = 1;
+                    inIndex = 2;
+                }
+
+                float t1 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex1]);
+                float t2 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex2]);
+
+                temporaryVertices[baseIndex + temporaryverticescount] = processVertices[c + inIndex];
+                temporaryVertices[baseIndex + temporaryverticescount + 1] = lerp(processVertices[c + inIndex], processVertices[c + outIndex1], t1);
+                temporaryVertices[baseIndex + temporaryverticescount + 2] = lerp(processVertices[c + inIndex], processVertices[c + outIndex2], t2);
+                temporaryverticescount += 3;
+                temporaryTextures[baseIndex + temporarytexturescount] = processTextures[c + inIndex];
+                temporaryTextures[baseIndex + temporarytexturescount + 1] = lerp(processTextures[c + inIndex], processTextures[c + outIndex1], t1);
+                temporaryTextures[baseIndex + temporarytexturescount + 2] = lerp(processTextures[c + inIndex], processTextures[c + outIndex2], t2);
+                temporarytexturescount += 3;
+
+                processBool[c] = false;
+                processBool[c + 1] = false;
+                processBool[c + 2] = false;
+
+                AddTriangles += 1;
+            }
+            else if (inCount == 2)
+            {
+                if (!b1 && b2 && b3)
+                {
+                    outIndex = 0;
+                    inIndex1 = 1;
+                    inIndex2 = 2;
+                }
+                else if (b1 && !b2 && b3)
+                {
+                    inIndex1 = 2;
+                    outIndex = 1;
+                    inIndex2 = 0;
+                }
+                else if (b1 && b2 && !b3)
+                {
+                    inIndex1 = 0;
+                    inIndex2 = 1;
+                    outIndex = 2;
+                }
+
+                float t1 = planeDist[inIndex1] / (planeDist[inIndex1] - planeDist[outIndex]);
+                float t2 = planeDist[inIndex2] / (planeDist[inIndex2] - planeDist[outIndex]);
+
+                temporaryVertices[baseIndex + temporaryverticescount] = processVertices[c + inIndex1];
+                temporaryVertices[baseIndex + temporaryverticescount + 1] = processVertices[c + inIndex2];
+                temporaryVertices[baseIndex + temporaryverticescount + 2] = lerp(processVertices[c + inIndex1], processVertices[c + outIndex], t1);
+                temporaryVertices[baseIndex + temporaryverticescount + 3] = lerp(processVertices[c + inIndex1], processVertices[c + outIndex], t1);
+                temporaryVertices[baseIndex + temporaryverticescount + 4] = processVertices[c + inIndex2];
+                temporaryVertices[baseIndex + temporaryverticescount + 5] = lerp(processVertices[c + inIndex2], processVertices[c + outIndex], t2);
+                temporaryverticescount += 6;
+                temporaryTextures[baseIndex + temporarytexturescount] = processTextures[c + inIndex1];
+                temporaryTextures[baseIndex + temporarytexturescount + 1] = processTextures[c + inIndex2];
+                temporaryTextures[baseIndex + temporarytexturescount + 2] = lerp(processTextures[c + inIndex1], processTextures[c + outIndex], t1);
+                temporaryTextures[baseIndex + temporarytexturescount + 3] = lerp(processTextures[c + inIndex1], processTextures[c + outIndex], t1);
+                temporaryTextures[baseIndex + temporarytexturescount + 4] = processTextures[c + inIndex2];
+                temporaryTextures[baseIndex + temporarytexturescount + 5] = lerp(processTextures[c + inIndex2], processTextures[c + outIndex], t2);
+                temporarytexturescount += 6;
+
+                processBool[c] = false;
+                processBool[c + 1] = false;
+                processBool[c + 2] = false;
+
+                AddTriangles += 2;
+            }
+            else if (inCount == 0)
+            {
+                processBool[c] = false;
+                processBool[c + 1] = false;
+                processBool[c + 2] = false;
+            }
+        }
+        if (AddTriangles > 0)
+        {
+            for (uint d = baseIndex; d < baseIndex + temporaryverticescount; d += 3)
+            {
+                processVertices[baseIndex + processverticescount] = temporaryVertices[d];
+                processVertices[baseIndex + processverticescount + 1] = temporaryVertices[d + 1];
+                processVertices[baseIndex + processverticescount + 2] = temporaryVertices[d + 2];
+                processverticescount += 3;
+                processTextures[baseIndex + processtexturescount] = temporaryTextures[d];
+                processTextures[baseIndex + processtexturescount + 1] = temporaryTextures[d + 1];
+                processTextures[baseIndex + processtexturescount + 2] = temporaryTextures[d + 2];
+                processtexturescount += 3;
+                processBool[baseIndex + processboolcount] = true;
+                processBool[baseIndex + processboolcount + 1] = true;
+                processBool[baseIndex + processboolcount + 2] = true;
+                processboolcount += 3;
+            }
+        }
+    }
+    for (uint e = baseIndex; e < baseIndex + processboolcount; e += 3)
+    {
+        if (processBool[e] == true && processBool[e + 1] == true && processBool[e + 2] == true)
+        {
+            Triangle triout;
+
+            triout.v0 = processVertices[e];
+            triout.v1 = processVertices[e + 1];
+            triout.v2 = processVertices[e + 2];
+            triout.uv0 = processTextures[e];
+            triout.uv1 = processTextures[e + 1];
+            triout.uv2 = processTextures[e + 2];
+    
+            outputTriangleBuffer.Append(triout);
+            
+            InterlockedAdd(argsBuffer[0], 3);
+        }
+    }
+}

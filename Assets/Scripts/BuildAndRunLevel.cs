@@ -27,8 +27,6 @@ public struct Triangle
 {
     public Vector3 v0, v1, v2;
     public Vector4 uv0, uv1, uv2;
-
-    public int sectorID;
 };
 
 [Serializable]
@@ -97,28 +95,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public string Textures = "Textures";
 
-    // Default scale is 2.5, but Unreal tournament is 128
-    private float Scale = 2.5f;
+    public ComputeShader computeShader;
 
     public Level level;
 
     public int LevelNumber;
-
-    private float planeDistance;
-
-    private bool radius;
-
-    private bool check;
-
-    private int opaqueCount;
-
-    private int transparentCount;
-
-    private int MaxDepth;
-
-    private Mesh opaquemesh;
-
-    private Mesh transparentmesh;
 
     public float speed = 7f;
     public float jumpHeight = 2f;
@@ -132,17 +113,40 @@ public class BuildAndRunLevel : MonoBehaviour
     private Vector2 currentRotation;
     private Vector3 currentForce;
 
+    private int kernel;
+    private ComputeBuffer processVertices;
+    private ComputeBuffer processTextures;
+    private ComputeBuffer processBool;
+    private ComputeBuffer temporaryVertices;
+    private ComputeBuffer temporaryTextures;
+    private ComputeBuffer inputTriangleBuffer;
+    private ComputeBuffer frustumBuffer;
+    private ComputeBuffer planeBuffer;
+    private ComputeBuffer outputTriangleBuffer;
+    private ComputeBuffer argsBuffer;
+
+    // Default scale is 2.5, but Unreal tournament is 128
+    private float Scale = 2.5f;
+
     private CharacterController Player;
 
-    private Color[] LightColor;
+    private float planeDistance;
 
-    private int[] OneTriangle;
+    private bool radius;
+
+    private bool check;
+
+    private int MaxDepth;
+
+    private Mesh opaquemesh;
+
+    private Mesh transparentmesh;
+
+    private Color[] LightColor;
 
     private Camera Cam;
 
     private Vector3 CamPoint;
-
-    private RenderParams rp;
 
     private SectorMeta CurrentSector;
 
@@ -152,25 +156,17 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private Vector3[] processvertices;
 
-    private Vector4[] processtextures;
-
     private Vector3[] temporaryvertices;
 
-    private Vector4[] temporarytextures;
-
     private List<MathematicalPlane> MathematicalCamPlanes = new List<MathematicalPlane>();
+
+    private List<Triangle> Opaque = new List<Triangle>();
+
+    private List<FrustumMeta> OpaqueFrustum = new List<FrustumMeta>();
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
     private List<int> OpaqueTriangles = new List<int>();
-
-    private List<Vector4> OpaqueTextures = new List<Vector4>();
-
-    private List<Vector3> TransparentVertices = new List<Vector3>();
-
-    private List<Vector4> TransparentTextures = new List<Vector4>();
-
-    private List<int> TransparentTriangles = new List<int>();
 
     private List<SectorMeta> Sectors = new List<SectorMeta>();
 
@@ -178,15 +174,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private List<GameObject> CollisionSectors = new List<GameObject>();
 
-    private List<Vector3> OutTriangleVertices = new List<Vector3>();
-
-    private List<Vector4> OutTriangleTextures = new List<Vector4>();
-
     private List<Vector3> OutEdgeVertices = new List<Vector3>();
 
     private Material opaquematerial;
-
-    private Material transparentmaterial;
 
     private List<Mesh> CollisionMesh = new List<Mesh>();
 
@@ -275,19 +265,33 @@ public class BuildAndRunLevel : MonoBehaviour
 
         LoadLevel();
 
-        LightColor = new Color[LevelLists.colors.Count];
+        int strideTriangle = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Triangle));
+        int strideFrustum = System.Runtime.InteropServices.Marshal.SizeOf(typeof(FrustumMeta));
+        int stridePlane = System.Runtime.InteropServices.Marshal.SizeOf(typeof(MathematicalPlane));
+        int strideVertex = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector3));
+        int strideTexture = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector4));
+        int strideBool = System.Runtime.InteropServices.Marshal.SizeOf(typeof(bool));
+        int strideUint = System.Runtime.InteropServices.Marshal.SizeOf(typeof(uint));
+        int scratchSize = LevelLists.opaques.Count * 10 * 256;
 
-        OneTriangle = new int[3];
+        processVertices = new ComputeBuffer(scratchSize, strideVertex);
+        processTextures = new ComputeBuffer(scratchSize, strideTexture);
+        processBool = new ComputeBuffer(scratchSize, strideBool);
+        temporaryVertices = new ComputeBuffer(scratchSize, strideVertex);
+        temporaryTextures = new ComputeBuffer(scratchSize, strideTexture);
+        frustumBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, strideFrustum, ComputeBufferType.Structured);
+        planeBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, stridePlane, ComputeBufferType.Structured);
+        inputTriangleBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, strideTriangle, ComputeBufferType.Structured);
+        outputTriangleBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, strideTriangle, ComputeBufferType.Append);
+        argsBuffer = new ComputeBuffer(1, strideUint * 4, ComputeBufferType.IndirectArguments);
+
+        LightColor = new Color[LevelLists.colors.Count];
 
         processbool = new bool[256];
 
         processvertices = new Vector3[256];
 
-        processtextures = new Vector4[256];
-
         temporaryvertices = new Vector3[256];
-
-        temporarytextures = new Vector4[256];
 
         CreateMaterial();
 
@@ -298,8 +302,6 @@ public class BuildAndRunLevel : MonoBehaviour
         transparentmesh = new Mesh();
 
         transparentmesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-
-        rp = new RenderParams();
 
         CollisionObjects = new GameObject("Collision Meshes");
 
@@ -345,37 +347,45 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MathematicalCamPlanes.RemoveAt(4);
 
-            OpaqueVertices.Clear();
-
-            OpaqueTextures.Clear();
-
-            OpaqueTriangles.Clear();
-
-            TransparentVertices.Clear();
-
-            TransparentTextures.Clear();
-
-            TransparentTriangles.Clear();
-
-            opaqueCount = 0;
-
-            transparentCount = 0;
-
             MaxDepth = 0;
+
+            Opaque.Clear();
+
+            OpaqueFrustum.Clear();
 
             GetPortals(LevelLists.frustums[LevelLists.frustums.Count - 1], CurrentSector);
 
-            SetRenderMeshes();
+            GetTriangles();
 
             Cam.transform.hasChanged = false;
         }
+    }
 
-        Renderit();
+    void OnDestroy()
+    {
+        processVertices?.Release();
+        processTextures?.Release();
+        processBool?.Release();
+        temporaryVertices?.Release();
+        temporaryTextures?.Release();
+        frustumBuffer?.Release();
+        planeBuffer?.Release();
+        inputTriangleBuffer?.Release();
+        outputTriangleBuffer?.Release();
+        argsBuffer?.Release();
+    }
+
+    void OnRenderObject()
+    {
+        opaquematerial.SetPass(0);
+        Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, argsBuffer);
     }
 
     void Awake()
     {
         Player = GameObject.Find("Player").GetComponent<CharacterController>();
+
+        kernel = computeShader.FindKernel("CSMain");
 
         Cam = Camera.main;
     }
@@ -466,9 +476,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void CreateMaterial()
     {
-        Shader shader = Resources.Load<Shader>("TexArray");
-
-        Shader shaderT = Resources.Load<Shader>("TexArrayT");
+        Shader shader = Resources.Load<Shader>("TriangleTexArray");
 
         for (int i = 0; i < LevelLists.colors.Count; i++)
         {
@@ -480,12 +488,6 @@ public class BuildAndRunLevel : MonoBehaviour
         opaquematerial.mainTexture = Resources.Load<Texture2DArray>(Textures);
 
         opaquematerial.SetColorArray("_ColorArray", LightColor);
-
-        transparentmaterial = new Material(shaderT);
-
-        transparentmaterial.mainTexture = Resources.Load<Texture2DArray>(Textures);
-
-        transparentmaterial.SetColorArray("_ColorArray", LightColor);
     }
 
     public void Playerstart()
@@ -646,210 +648,6 @@ public class BuildAndRunLevel : MonoBehaviour
         return Vector3.Dot(plane.normal, point) + plane.distance;
     }
 
-    public void ClipTrianglesWithPlanes(FrustumMeta planes, List<Triangle> verttex, int startIndex, int count)
-    {
-        OutTriangleVertices.Clear();
-        OutTriangleTextures.Clear();
-        
-        float[] planeDist = new float[3];
-
-        for (int a = startIndex; a < count; a++)
-        {
-            int processverticescount = 0;
-            int processtexturescount = 0;
-            int processboolcount = 0;
-
-            Triangle tri = verttex[a];
-            processvertices[processverticescount] = tri.v0;
-            processvertices[processverticescount + 1] = tri.v1;
-            processvertices[processverticescount + 2] = tri.v2;
-            processverticescount += 3;
-            processtextures[processtexturescount] = tri.uv0;
-            processtextures[processtexturescount + 1] = tri.uv1;
-            processtextures[processtexturescount + 2] = tri.uv2;
-            processtexturescount += 3;
-            processbool[processboolcount] = true;
-            processbool[processboolcount + 1] = true;
-            processbool[processboolcount + 2] = true;
-            processboolcount += 3;
-
-            for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
-            {
-                int inIndex = 0;
-                int outIndex1 = 0;
-                int outIndex2 = 0;
-                int outIndex = 0;
-                int inIndex1 = 0;
-                int inIndex2 = 0;
-
-                int AddTriangles = 0;
-
-                int temporaryverticescount = 0;
-
-                int temporarytexturescount = 0;
-
-                for (int c = 0; c < processverticescount; c += 3)
-                {
-                    if (processbool[c] == false && processbool[c + 1] == false && processbool[c + 2] == false)
-                    {
-                        continue;
-                    }
-
-                    planeDist[0] = GetPlaneSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
-                    planeDist[1] = GetPlaneSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
-                    planeDist[2] = GetPlaneSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 2]);
-                    bool b1 = planeDist[0] >= 0;
-                    bool b2 = planeDist[1] >= 0;
-                    bool b3 = planeDist[2] >= 0;
-
-                    int inCount = 0;
-
-                    if (b1)
-                    {
-                        inCount += 1;
-                    }
-
-                    if (b2)
-                    {
-                        inCount += 1;
-                    }
-
-                    if (b3)
-                    {
-                        inCount += 1;
-                    }
-
-                    if (inCount == 3)
-                    {
-                        continue;
-                    }
-                    else if (inCount == 1)
-                    {
-                        if (b1 && !b2 && !b3)
-                        {
-                            inIndex = 0;
-                            outIndex1 = 1;
-                            outIndex2 = 2;
-                        }
-                        else if (!b1 && b2 && !b3)
-                        {
-                            outIndex1 = 2;
-                            inIndex = 1;
-                            outIndex2 = 0;
-                        }
-                        else if (!b1 && !b2 && b3)
-                        {
-                            outIndex1 = 0;
-                            outIndex2 = 1;
-                            inIndex = 2;
-                        }
-
-                        float t1 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex1]);
-                        float t2 = planeDist[inIndex] / (planeDist[inIndex] - planeDist[outIndex2]);
-
-                        temporaryvertices[temporaryverticescount] = processvertices[c + inIndex];
-                        temporaryvertices[temporaryverticescount + 1] = Vector3.Lerp(processvertices[c + inIndex], processvertices[c + outIndex1], t1);
-                        temporaryvertices[temporaryverticescount + 2] = Vector3.Lerp(processvertices[c + inIndex], processvertices[c + outIndex2], t2);
-                        temporaryverticescount += 3;
-                        temporarytextures[temporarytexturescount] = processtextures[c + inIndex];
-                        temporarytextures[temporarytexturescount + 1] = Vector4.Lerp(processtextures[c + inIndex], processtextures[c + outIndex1], t1);
-                        temporarytextures[temporarytexturescount + 2] = Vector4.Lerp(processtextures[c + inIndex], processtextures[c + outIndex2], t2);
-                        temporarytexturescount += 3;
-
-                        processbool[c] = false;
-                        processbool[c + 1] = false;
-                        processbool[c + 2] = false;
-
-                        AddTriangles += 1;
-                    }
-                    else if (inCount == 2)
-                    {
-                        if (!b1 && b2 && b3)
-                        {
-                            outIndex = 0;
-                            inIndex1 = 1;
-                            inIndex2 = 2;
-                        }
-                        else if (b1 && !b2 && b3)
-                        {
-                            inIndex1 = 2;
-                            outIndex = 1;
-                            inIndex2 = 0;
-                        }
-                        else if (b1 && b2 && !b3)
-                        {
-                            inIndex1 = 0;
-                            inIndex2 = 1;
-                            outIndex = 2;
-                        }
-
-                        float t1 = planeDist[inIndex1] / (planeDist[inIndex1] - planeDist[outIndex]);
-                        float t2 = planeDist[inIndex2] / (planeDist[inIndex2] - planeDist[outIndex]);
-
-                        temporaryvertices[temporaryverticescount] = processvertices[c + inIndex1];
-                        temporaryvertices[temporaryverticescount + 1] = processvertices[c + inIndex2];
-                        temporaryvertices[temporaryverticescount + 2] = Vector3.Lerp(processvertices[c + inIndex1], processvertices[c + outIndex], t1);
-                        temporaryvertices[temporaryverticescount + 3] = Vector3.Lerp(processvertices[c + inIndex1], processvertices[c + outIndex], t1);
-                        temporaryvertices[temporaryverticescount + 4] = processvertices[c + inIndex2];
-                        temporaryvertices[temporaryverticescount + 5] = Vector3.Lerp(processvertices[c + inIndex2], processvertices[c + outIndex], t2);
-                        temporaryverticescount += 6;
-                        temporarytextures[temporarytexturescount] = processtextures[c + inIndex1];
-                        temporarytextures[temporarytexturescount + 1] = processtextures[c + inIndex2];
-                        temporarytextures[temporarytexturescount + 2] = Vector4.Lerp(processtextures[c + inIndex1], processtextures[c + outIndex], t1);
-                        temporarytextures[temporarytexturescount + 3] = Vector4.Lerp(processtextures[c + inIndex1], processtextures[c + outIndex], t1);
-                        temporarytextures[temporarytexturescount + 4] = processtextures[c + inIndex2];
-                        temporarytextures[temporarytexturescount + 5] = Vector4.Lerp(processtextures[c + inIndex2], processtextures[c + outIndex], t2);
-                        temporarytexturescount += 6;
-
-                        processbool[c] = false;
-                        processbool[c + 1] = false;
-                        processbool[c + 2] = false;
-
-                        AddTriangles += 2;
-                    }
-                    else if (inCount == 0)
-                    {
-                        processbool[c] = false;
-                        processbool[c + 1] = false;
-                        processbool[c + 2] = false;
-                    }
-                }
-
-                if (AddTriangles > 0)
-                {
-                    for (int d = 0; d < temporaryverticescount; d += 3)
-                    {
-                        processvertices[processverticescount] = temporaryvertices[d];
-                        processvertices[processverticescount + 1] = temporaryvertices[d + 1];
-                        processvertices[processverticescount + 2] = temporaryvertices[d + 2];
-                        processverticescount += 3;
-                        processtextures[processtexturescount] = temporarytextures[d];
-                        processtextures[processtexturescount + 1] = temporarytextures[d + 1];
-                        processtextures[processtexturescount + 2] = temporarytextures[d + 2];
-                        processtexturescount += 3;
-                        processbool[processboolcount] = true;
-                        processbool[processboolcount + 1] = true;
-                        processbool[processboolcount + 2] = true;
-                        processboolcount += 3;
-                    }
-                }
-            }
-
-            for (int e = 0; e < processboolcount; e += 3)
-            {
-                if (processbool[e] == true && processbool[e + 1] == true && processbool[e + 2] == true)
-                {
-                    OutTriangleVertices.Add(processvertices[e]);
-                    OutTriangleVertices.Add(processvertices[e + 1]);
-                    OutTriangleVertices.Add(processvertices[e + 2]);
-                    OutTriangleTextures.Add(processtextures[e]);
-                    OutTriangleTextures.Add(processtextures[e + 1]);
-                    OutTriangleTextures.Add(processtextures[e + 2]);
-                }
-            }
-        }
-    }
-
     public void ClipEdgesWithPlanes(FrustumMeta planes, PortalMeta portal)
     {
         OutEdgeVertices.Clear();
@@ -975,48 +773,6 @@ public class BuildAndRunLevel : MonoBehaviour
         }
     }
 
-    public void SetRenderMeshes()
-    {
-        opaquemesh.Clear();
-
-        opaquemesh.SetVertices(OpaqueVertices);
-
-        opaquemesh.SetUVs(0, OpaqueTextures);
-
-        opaquemesh.SetTriangles(OpaqueTriangles, 0);
-
-        transparentmesh.Clear();
-
-        transparentmesh.subMeshCount = TransparentTriangles.Count / 3;
-
-        transparentmesh.SetVertices(TransparentVertices);
-
-        transparentmesh.SetUVs(0, TransparentTextures);
-
-        for (int i = 0; i < TransparentTriangles.Count; i += 3)
-        {
-            OneTriangle[0] = TransparentTriangles[i];
-            OneTriangle[1] = TransparentTriangles[i + 1];
-            OneTriangle[2] = TransparentTriangles[i + 2];
-
-            transparentmesh.SetTriangles(OneTriangle, i / 3);
-        }
-    }
-
-    public void Renderit()
-    {
-        rp.material = opaquematerial;
-
-        Graphics.RenderMesh(rp, opaquemesh, 0, Matrix4x4.identity);
-
-        rp.material = transparentmaterial;
-
-        for (int i = TransparentTriangles.Count - 1; i >= 0; i -= 3)
-        {
-            Graphics.RenderMesh(rp, transparentmesh, i / 3, Matrix4x4.identity);
-        }
-    }
-
     public bool CheckRadius(SectorMeta asector, Vector3 campoint)
     {
         for (int i = asector.planeStartIndex; i < asector.planeStartIndex + asector.planeCount; i++)
@@ -1092,44 +848,45 @@ public class BuildAndRunLevel : MonoBehaviour
         }
     }
 
-    public void GetTriangles(FrustumMeta APlanes, SectorMeta BSector)
+    public void GetTriangles()
     {
-        ClipTrianglesWithPlanes(APlanes, LevelLists.opaques, BSector.opaqueStartIndex, BSector.opaqueStartIndex + BSector.opaqueCount);
+        
 
-        for (int e = 0; e < OutTriangleVertices.Count; e += 3)
-        {
-            OpaqueVertices.Add(OutTriangleVertices[e]);
-            OpaqueVertices.Add(OutTriangleVertices[e + 1]);
-            OpaqueVertices.Add(OutTriangleVertices[e + 2]);
-            OpaqueTextures.Add(OutTriangleTextures[e]);
-            OpaqueTextures.Add(OutTriangleTextures[e + 1]);
-            OpaqueTextures.Add(OutTriangleTextures[e + 2]);
-            OpaqueTriangles.Add(opaqueCount);
-            OpaqueTriangles.Add(opaqueCount + 1);
-            OpaqueTriangles.Add(opaqueCount + 2);
-            opaqueCount += 3;
-        }
+        inputTriangleBuffer.SetData(Opaque);
 
-        ClipTrianglesWithPlanes(APlanes, LevelLists.transparents, BSector.transparentStartIndex, BSector.transparentStartIndex + BSector.transparentCount);
+        frustumBuffer.SetData(OpaqueFrustum);
 
-        for (int e = 0; e < OutTriangleVertices.Count; e += 3)
-        {
-            TransparentVertices.Add(OutTriangleVertices[e]);
-            TransparentVertices.Add(OutTriangleVertices[e + 1]);
-            TransparentVertices.Add(OutTriangleVertices[e + 2]);
-            TransparentTextures.Add(OutTriangleTextures[e]);
-            TransparentTextures.Add(OutTriangleTextures[e + 1]);
-            TransparentTextures.Add(OutTriangleTextures[e + 2]);
-            TransparentTriangles.Add(transparentCount);
-            TransparentTriangles.Add(transparentCount + 1);
-            TransparentTriangles.Add(transparentCount + 2);
-            transparentCount += 3;
-        }
+        planeBuffer.SetData(MathematicalCamPlanes);
+
+        argsBuffer.SetData(new uint[] { 0, 1, 0, 0 });
+
+        outputTriangleBuffer.SetCounterValue(0);
+
+        computeShader.SetBuffer(kernel, "processVertices", processVertices);
+        computeShader.SetBuffer(kernel, "processTextures", processTextures);
+        computeShader.SetBuffer(kernel, "processBool", processBool);
+        computeShader.SetBuffer(kernel, "temporaryVertices", temporaryVertices);
+        computeShader.SetBuffer(kernel, "temporaryTextures", temporaryTextures);
+        computeShader.SetBuffer(kernel, "planeBuffer", planeBuffer);
+        computeShader.SetBuffer(kernel, "frustumBuffer", frustumBuffer);
+        computeShader.SetBuffer(kernel, "inputTriangleBuffer", inputTriangleBuffer);
+        computeShader.SetBuffer(kernel, "outputTriangleBuffer", outputTriangleBuffer);
+        computeShader.SetBuffer(kernel, "argsBuffer", argsBuffer);
+        computeShader.SetVector("CamPosition", new Vector4(CamPoint.x, CamPoint.y, CamPoint.z, 1.0f));
+
+        computeShader.Dispatch(kernel, Opaque.Count, 1, 1);
+
+        opaquematerial.SetBuffer("outputTriangleBuffer", outputTriangleBuffer);
     }
 
     public void GetPortals(FrustumMeta APlanes, SectorMeta BSector)
     {
-        GetTriangles(APlanes, BSector);
+        for (int e = BSector.opaqueStartIndex; e < BSector.opaqueStartIndex + BSector.opaqueCount; e++)
+        {
+            Opaque.Add(LevelLists.opaques[e]);
+
+            OpaqueFrustum.Add(APlanes);
+        }
 
         for (int i = BSector.portalStartIndex; i < BSector.portalStartIndex + BSector.portalCount; i++)
         {
@@ -1300,8 +1057,6 @@ public class BuildAndRunLevel : MonoBehaviour
                         otriangle.uv1 = uvVector4[mesh.triangles[i + 1]];
                         otriangle.uv2 = uvVector4[mesh.triangles[i + 2]];
 
-                        otriangle.sectorID = h;
-
                         LevelLists.opaques.Add(otriangle);
 
                         rendersCount += 1;
@@ -1319,8 +1074,6 @@ public class BuildAndRunLevel : MonoBehaviour
                         ctriangle.v0 = mesh.vertices[mesh.triangles[i]];
                         ctriangle.v1 = mesh.vertices[mesh.triangles[i + 1]];
                         ctriangle.v2 = mesh.vertices[mesh.triangles[i + 2]];
-
-                        ctriangle.sectorID = h;
 
                         LevelLists.collisions.Add(ctriangle);
 
@@ -1346,8 +1099,6 @@ public class BuildAndRunLevel : MonoBehaviour
                         ttriangle.uv0 = uvVector4[mesh.triangles[i]];
                         ttriangle.uv1 = uvVector4[mesh.triangles[i + 1]];
                         ttriangle.uv2 = uvVector4[mesh.triangles[i + 2]];
-
-                        ttriangle.sectorID = h;
 
                         LevelLists.transparents.Add(ttriangle);
 
