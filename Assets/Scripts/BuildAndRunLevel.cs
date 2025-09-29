@@ -160,9 +160,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private List<MathematicalPlane> MathematicalCamPlanes = new List<MathematicalPlane>();
 
-    private List<Triangle> Opaque = new List<Triangle>();
+    private List<Triangle> CombinedOpaque = new List<Triangle>();
 
-    private List<FrustumMeta> OpaqueFrustum = new List<FrustumMeta>();
+    private List<FrustumMeta> CombinedOpaqueFrustum = new List<FrustumMeta>();
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
@@ -287,11 +287,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
         LightColor = new Color[LevelLists.colors.Count];
 
-        processbool = new bool[256];
+        processbool = new bool[128];
 
-        processvertices = new Vector3[256];
+        processvertices = new Vector3[128];
 
-        temporaryvertices = new Vector3[256];
+        temporaryvertices = new Vector3[128];
 
         CreateMaterial();
 
@@ -349,9 +349,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
             MaxDepth = 0;
 
-            Opaque.Clear();
+            CombinedOpaque.Clear();
 
-            OpaqueFrustum.Clear();
+            CombinedOpaqueFrustum.Clear();
 
             GetPortals(LevelLists.frustums[LevelLists.frustums.Count - 1], CurrentSector);
 
@@ -850,11 +850,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetTriangles()
     {
-        
+        inputTriangleBuffer.SetData(CombinedOpaque);
 
-        inputTriangleBuffer.SetData(Opaque);
-
-        frustumBuffer.SetData(OpaqueFrustum);
+        frustumBuffer.SetData(CombinedOpaqueFrustum);
 
         planeBuffer.SetData(MathematicalCamPlanes);
 
@@ -874,7 +872,7 @@ public class BuildAndRunLevel : MonoBehaviour
         computeShader.SetBuffer(kernel, "argsBuffer", argsBuffer);
         computeShader.SetVector("CamPosition", new Vector4(CamPoint.x, CamPoint.y, CamPoint.z, 1.0f));
 
-        computeShader.Dispatch(kernel, Opaque.Count, 1, 1);
+        computeShader.Dispatch(kernel, CombinedOpaque.Count, 1, 1);
 
         opaquematerial.SetBuffer("outputTriangleBuffer", outputTriangleBuffer);
     }
@@ -883,9 +881,9 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         for (int e = BSector.opaqueStartIndex; e < BSector.opaqueStartIndex + BSector.opaqueCount; e++)
         {
-            Opaque.Add(LevelLists.opaques[e]);
+            CombinedOpaque.Add(LevelLists.opaques[e]);
 
-            OpaqueFrustum.Add(APlanes);
+            CombinedOpaqueFrustum.Add(APlanes);
         }
 
         for (int i = BSector.portalStartIndex; i < BSector.portalStartIndex + BSector.portalCount; i++)
