@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using UnityEngine;
 using Weland;
 
@@ -158,23 +157,35 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private Vector3[] temporaryvertices;
 
-    private List<MathematicalPlane> MathematicalCamPlanes = new List<MathematicalPlane>();
+    private Vector3[] outputvertices;
 
-    private List<Triangle> CombinedOpaque = new List<Triangle>();
+    private Triangle[] combinedopaque;
 
-    private List<FrustumMeta> CombinedOpaqueFrustum = new List<FrustumMeta>();
+    private FrustumMeta[] combinedopaquefrustum;
+
+    private MathematicalPlane[] combinedplanes;
+
+    private SectorMeta[] oldsectors;
+
+    private SectorMeta[] sectors;
+
+    private int sectorscount;
+
+    private int oldsectorscount;
+
+    private int combinedopaquecount;
+
+    private int combinedplanescount;
+
+    private int combinedopaquefrustumcount;
+
+    private int outputverticescount;
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
     private List<int> OpaqueTriangles = new List<int>();
 
-    private List<SectorMeta> Sectors = new List<SectorMeta>();
-
-    private List<SectorMeta> OldSectors = new List<SectorMeta>();
-
-    private List<GameObject> CollisionSectors = new List<GameObject>();
-
-    private List<Vector3> OutEdgeVertices = new List<Vector3>();
+    private List<MeshCollider> CollisionSectors = new List<MeshCollider>();
 
     private Material opaquematerial;
 
@@ -287,11 +298,23 @@ public class BuildAndRunLevel : MonoBehaviour
 
         LightColor = new Color[LevelLists.colors.Count];
 
+        combinedopaque = new Triangle[LevelLists.opaques.Count * 10];
+
+        combinedopaquefrustum = new FrustumMeta[LevelLists.opaques.Count * 10];
+
+        combinedplanes = new MathematicalPlane[LevelLists.opaques.Count * 10];
+
         processbool = new bool[128];
 
         processvertices = new Vector3[128];
 
         temporaryvertices = new Vector3[128];
+
+        outputvertices = new Vector3[128];
+
+        oldsectors = new SectorMeta[128];
+
+        sectors = new SectorMeta[128];
 
         CreateMaterial();
 
@@ -321,9 +344,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
         Player.GetComponent<CharacterController>().enabled = true;
 
-        foreach (SectorMeta sector in LevelLists.sectors)
+        for (int i = 0; i < LevelLists.sectors.Count; i++)
         {
-            Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), true);
+            Physics.IgnoreCollision(Player, CollisionSectors[LevelLists.sectors[i].sectorID], true);
         }
     }
 
@@ -335,23 +358,19 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             CamPoint = Cam.transform.position;
 
-            Sectors.Clear();
+            sectorscount = 0;
 
             GetSectors(CurrentSector);
 
-            MathematicalCamPlanes.Clear();
+            combinedplanescount = 0;
 
-            ReadFrustumPlanes(Cam, MathematicalCamPlanes);
-
-            MathematicalCamPlanes.RemoveAt(5);
-
-            MathematicalCamPlanes.RemoveAt(4);
+            ReadFrustumPlanes(Cam, combinedplanes);
 
             MaxDepth = 0;
 
-            CombinedOpaque.Clear();
+            combinedopaquecount = 0;
 
-            CombinedOpaqueFrustum.Clear();
+            combinedopaquefrustumcount = 0;
 
             GetPortals(LevelLists.frustums[LevelLists.frustums.Count - 1], CurrentSector);
 
@@ -519,7 +538,7 @@ public class BuildAndRunLevel : MonoBehaviour
         };
     }
 
-    public void SetFrustumPlanes(List<MathematicalPlane> planes, Matrix4x4 m)
+    public void SetFrustumPlanes(MathematicalPlane[] planes, Matrix4x4 m)
     {
         if (planes == null)
             return;
@@ -528,36 +547,38 @@ public class BuildAndRunLevel : MonoBehaviour
         var r2 = m.GetRow(2);
         var r3 = m.GetRow(3);
 
-        planes.Add(FromVec4(r3 - r0)); // Right
-        planes.Add(FromVec4(r3 + r0)); // Left
-        planes.Add(FromVec4(r3 - r1)); // Top
-        planes.Add(FromVec4(r3 + r1)); // Bottom
-        planes.Add(FromVec4(r3 - r2)); // Far
-        planes.Add(FromVec4(r3 + r2)); // Near
+        planes[combinedplanescount] = FromVec4(r3 - r0); // Right
+        planes[combinedplanescount + 1] = FromVec4(r3 + r0); // Left
+        planes[combinedplanescount + 2] = FromVec4(r3 - r1); // Top
+        planes[combinedplanescount + 3] = FromVec4(r3 + r1); // Bottom
+        planes[combinedplanescount + 4] = FromVec4(r3 - r2); // Far
+        planes[combinedplanescount + 5] = FromVec4(r3 + r2); // Near
+        combinedplanescount += 4;
     }
 
-    public void ReadFrustumPlanes(Camera cam, List<MathematicalPlane> planes)
+    public void ReadFrustumPlanes(Camera cam, MathematicalPlane[] planes)
     {
         SetFrustumPlanes(planes, cam.projectionMatrix * cam.worldToCameraMatrix);
     }
 
-    public void SetClippingPlanes(List<Vector3> vertices, int portalnumber, Vector3 viewPos)
+    public void SetClippingPlanes(Vector3[] vertices, int portalnumber, Vector3 viewPos)
     {
-        int StartIndex = MathematicalCamPlanes.Count;
+        int StartIndex = combinedplanescount;
 
         int IndexCount = 0;
 
-        int count = vertices.Count;
-        for (int i = 0; i < count; i += 2)
+        for (int i = 0; i < outputverticescount; i += 2)
         {
             Vector3 p1 = vertices[i];
             Vector3 p2 = vertices[i + 1];
             Vector3 normal = Vector3.Cross(p1 - p2, viewPos - p2);
             float magnitude = normal.magnitude;
+            Vector3 normalized = normal / magnitude;
 
             if (magnitude > 0.01f)
             {
-                MathematicalCamPlanes.Add(new MathematicalPlane { normal = normal / magnitude, distance = -Vector3.Dot(normal / magnitude, p1) });
+                combinedplanes[combinedplanescount] = new MathematicalPlane { normal = normalized, distance = -Vector3.Dot(normalized, p1) };
+                combinedplanescount += 1;
                 IndexCount += 1;
             }
         }
@@ -601,11 +622,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
             GameObject meshObject = new GameObject("Collision " + i);
 
-            CollisionSectors.Add(meshObject);
-
             MeshCollider meshCollider = meshObject.AddComponent<MeshCollider>();
 
             meshCollider.sharedMesh = combinedmesh;
+
+            CollisionSectors.Add(meshCollider);
 
             meshObject.transform.SetParent(CollisionObjects.transform);
         }
@@ -650,7 +671,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void ClipEdgesWithPlanes(FrustumMeta planes, PortalMeta portal)
     {
-        OutEdgeVertices.Clear();
+        outputverticescount = 0;
 
         int processverticescount = 0;
         int processboolcount = 0;
@@ -685,8 +706,8 @@ public class BuildAndRunLevel : MonoBehaviour
                     continue;
                 }
 
-                float d1 = GetPlaneSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c]);
-                float d2 = GetPlaneSignedDistanceToPoint(MathematicalCamPlanes[b], processvertices[c + 1]);
+                float d1 = GetPlaneSignedDistanceToPoint(combinedplanes[b], processvertices[c]);
+                float d2 = GetPlaneSignedDistanceToPoint(combinedplanes[b], processvertices[c + 1]);
                 bool b1 = d1 >= 0;
                 bool b2 = d2 >= 0;
 
@@ -767,8 +788,9 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             if (processbool[e] == true && processbool[e + 1] == true)
             {
-                OutEdgeVertices.Add(processvertices[e]);
-                OutEdgeVertices.Add(processvertices[e + 1]);
+                outputvertices[outputverticescount] = processvertices[e];
+                outputvertices[outputverticescount + 1] = processvertices[e + 1];
+                outputverticescount += 2;
             }
         }
     }
@@ -797,52 +819,83 @@ public class BuildAndRunLevel : MonoBehaviour
         return true;
     }
 
+    public bool SectorsContains(int sectorID)
+    {
+        for (int i = 0; i < sectorscount; i++)
+        {
+            if (sectors[i].sectorID == sectorID) 
+            {
+                return true;
+            }    
+        }
+        return false;
+    }
+
+    public bool SectorsDoNotEqual()
+    {
+        if (sectorscount != oldsectorscount) 
+        {
+            return true;
+        }
+
+        for (int i = 0; i < sectorscount; i++)
+        {
+            if (sectors[i].sectorID != oldsectors[i].sectorID)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void GetSectors(SectorMeta ASector)
     {
-        Sectors.Add(ASector);
+        sectors[sectorscount] = ASector;
+        sectorscount += 1;
 
         for (int i = ASector.portalStartIndex; i < ASector.portalStartIndex + ASector.portalCount; i++)
         {
             int portalnumber = LevelLists.portals[i].connectedSectorID;
 
-            if (Sectors.Contains(LevelLists.sectors[portalnumber]))
+            SectorMeta portalsector = LevelLists.sectors[portalnumber];
+
+            if (SectorsContains(portalsector.sectorID))
             {
                 continue;
             }
 
-            radius = CheckRadius(LevelLists.sectors[portalnumber], CamPoint);
+            radius = CheckRadius(portalsector, CamPoint);
 
-            if (radius == true)
+            if (radius)
             {
-                GetSectors(LevelLists.sectors[portalnumber]);
-
-                continue;
+                GetSectors(portalsector);
             }
         }
 
         check = CheckSector(ASector, CamPoint);
 
-        if (check == true)
+        if (check)
         {
             CurrentSector = ASector;
 
-            if (!OldSectors.SequenceEqual(Sectors))
+            if (SectorsDoNotEqual())
             {
-                foreach (SectorMeta sector in OldSectors)
+                for (int i = 0; i < oldsectorscount; i++)
                 {
-                    Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), true);
+                    Physics.IgnoreCollision(Player, CollisionSectors[oldsectors[i].sectorID], true);
                 }
 
-                foreach (SectorMeta sector in Sectors)
+                for (int i = 0; i < sectorscount; i++)
                 {
-                    Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID].GetComponent<MeshCollider>(), false);
+                    Physics.IgnoreCollision(Player, CollisionSectors[sectors[i].sectorID], false);
                 }
 
-                OldSectors.Clear();
+                oldsectorscount = 0;
 
-                foreach (SectorMeta sector in Sectors)
+                for (int i = 0; i < sectorscount; i++)
                 {
-                    OldSectors.Add(sector);
+                    oldsectors[oldsectorscount] = sectors[i];
+                    oldsectorscount += 1;
                 }
             }
         }
@@ -850,11 +903,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetTriangles()
     {
-        inputTriangleBuffer.SetData(CombinedOpaque);
+        inputTriangleBuffer.SetData(combinedopaque, 0, 0, combinedopaquecount);
 
-        frustumBuffer.SetData(CombinedOpaqueFrustum);
+        frustumBuffer.SetData(combinedopaquefrustum,0, 0, combinedopaquefrustumcount);
 
-        planeBuffer.SetData(MathematicalCamPlanes);
+        planeBuffer.SetData(combinedplanes, 0, 0, combinedplanescount);
 
         argsBuffer.SetData(new uint[] { 0, 1, 0, 0 });
 
@@ -872,7 +925,7 @@ public class BuildAndRunLevel : MonoBehaviour
         computeShader.SetBuffer(kernel, "argsBuffer", argsBuffer);
         computeShader.SetVector("CamPosition", new Vector4(CamPoint.x, CamPoint.y, CamPoint.z, 1.0f));
 
-        computeShader.Dispatch(kernel, CombinedOpaque.Count, 1, 1);
+        computeShader.Dispatch(kernel, combinedopaquecount, 1, 1);
 
         opaquematerial.SetBuffer("outputTriangleBuffer", outputTriangleBuffer);
     }
@@ -881,9 +934,11 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         for (int e = BSector.opaqueStartIndex; e < BSector.opaqueStartIndex + BSector.opaqueCount; e++)
         {
-            CombinedOpaque.Add(LevelLists.opaques[e]);
+            combinedopaque[combinedopaquecount] = LevelLists.opaques[e];
+            combinedopaquecount += 1;
 
-            CombinedOpaqueFrustum.Add(APlanes);
+            combinedopaquefrustum[combinedopaquefrustumcount] = APlanes;
+            combinedopaquefrustumcount += 1;
         }
 
         for (int i = BSector.portalStartIndex; i < BSector.portalStartIndex + BSector.portalCount; i++)
@@ -904,7 +959,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
             int portalnumber = LevelLists.portals[i].portalID;
 
-            if (Sectors.Contains(LevelLists.sectors[sectornumber]))
+            if (SectorsContains(LevelLists.sectors[sectornumber].sectorID))
             {
                 MaxDepth += 1;
 
@@ -915,12 +970,12 @@ public class BuildAndRunLevel : MonoBehaviour
 
             ClipEdgesWithPlanes(APlanes, LevelLists.portals[i]);
 
-            if (OutEdgeVertices.Count < 6 || OutEdgeVertices.Count % 2 == 1)
+            if (outputverticescount < 6 || outputverticescount % 2 == 1)
             {
                 continue;
             }
 
-            SetClippingPlanes(OutEdgeVertices, portalnumber, CamPoint);
+            SetClippingPlanes(outputvertices, portalnumber, CamPoint);
 
             MaxDepth += 1;
 
