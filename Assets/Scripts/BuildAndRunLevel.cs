@@ -169,6 +169,12 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private SectorMeta[] sectors;
 
+    private Vector3[] lineSegment;
+
+    private Vector3[] intersectionPoints;
+
+    private uint[] uintArgs;
+
     private int sectorscount;
 
     private int oldsectorscount;
@@ -315,6 +321,12 @@ public class BuildAndRunLevel : MonoBehaviour
         oldsectors = new SectorMeta[128];
 
         sectors = new SectorMeta[128];
+
+        lineSegment = new Vector3[2];
+
+        intersectionPoints = new Vector3[2];
+
+        uintArgs = new uint[] { 0, 1, 0, 0 };
 
         CreateMaterial();
 
@@ -676,10 +688,6 @@ public class BuildAndRunLevel : MonoBehaviour
         int processverticescount = 0;
         int processboolcount = 0;
 
-        Vector3[] lineSegment = new Vector3[2];
-
-        Vector3[] intersectionPoints = new Vector3[2];
-
         for (int a = portal.lineStartIndex; a < portal.lineStartIndex + portal.lineCount; a++)
         {
             Edge line = LevelLists.edges[a];
@@ -909,7 +917,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         planeBuffer.SetData(combinedplanes, 0, 0, combinedplanescount);
 
-        argsBuffer.SetData(new uint[] { 0, 1, 0, 0 });
+        argsBuffer.SetData(uintArgs);
 
         outputTriangleBuffer.SetCounterValue(0);
 
