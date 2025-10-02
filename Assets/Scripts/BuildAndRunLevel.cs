@@ -9,9 +9,6 @@ public struct Edge
 {
     public Vector3 start;
     public Vector3 end;
-
-    public int portalID;
-    public int sectorID;
 };
 
 [Serializable]
@@ -1055,10 +1052,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
                         line.start = mesh.vertices[x];
                         line.end = mesh.vertices[y];
-
-                        line.portalID = portalnumber;
-
-                        line.sectorID = h;
 
                         LevelLists.edges.Add(line);
 
