@@ -166,10 +166,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private SectorMeta[] sectors;
 
-    private Vector3[] lineSegment;
-
-    private Vector3[] intersectionPoints;
-
     private uint[] uintArgs;
 
     private int sectorscount;
@@ -183,6 +179,8 @@ public class BuildAndRunLevel : MonoBehaviour
     private int combinedopaquefrustumcount;
 
     private int outputverticescount;
+
+    private Queue<(FrustumMeta, SectorMeta)> PortalQueue = new Queue<(FrustumMeta, SectorMeta)>();
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
@@ -318,10 +316,6 @@ public class BuildAndRunLevel : MonoBehaviour
         oldsectors = new SectorMeta[128];
 
         sectors = new SectorMeta[128];
-
-        lineSegment = new Vector3[2];
-
-        intersectionPoints = new Vector3[2];
 
         uintArgs = new uint[] { 0, 1, 0, 0 };
 
@@ -699,10 +693,11 @@ public class BuildAndRunLevel : MonoBehaviour
         for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
         {
             int intersection = 0;
-            int inIndex = 0;
-            int outIndex = 0;
 
             int temporaryverticescount = 0;
+
+            Vector3 intersectionPoint1 = Vector3.zero;
+            Vector3 intersectionPoint2 = Vector3.zero;
 
             for (int c = 0; c < processverticescount; c += 2)
             {
@@ -711,49 +706,43 @@ public class BuildAndRunLevel : MonoBehaviour
                     continue;
                 }
 
+                Vector3 p1 = processvertices[c];
+                Vector3 p2 = processvertices[c + 1];
+
                 float d1 = GetPlaneSignedDistanceToPoint(combinedplanes[b], processvertices[c]);
                 float d2 = GetPlaneSignedDistanceToPoint(combinedplanes[b], processvertices[c + 1]);
-                bool b1 = d1 >= 0;
-                bool b2 = d2 >= 0;
 
-                int inCount = 0;
+                bool b0 = d1 >= 0;
+                bool b1 = d2 >= 0;
 
-                if (b1)
-                {
-                    inCount += 1;
-                }
-
-                if (b2)
-                {
-                    inCount += 1;
-                }
-
-                if (inCount == 2)
+                if (b0 && b1)
                 {
                     continue;
                 }
-                else if (inCount == 1)
+                else if ((b0 && !b1) || (!b0 && b1))
                 {
-                    if (b1 && !b2)
-                    {
-                        inIndex = 0;
-                        outIndex = 1;
-                    }
-                    else if (!b1 && b2)
-                    {
-                        inIndex = 1;
-                        outIndex = 0;
-                    }
+                    Vector3 point1;
+                    Vector3 point2;
 
                     float t = d1 / (d1 - d2);
 
-                    intersectionPoints[outIndex] = Vector3.Lerp(processvertices[c], processvertices[c + 1], t);
+                    Vector3 intersectionPoint = Vector3.Lerp(p1, p2, t);
 
-                    lineSegment[inIndex] = processvertices[c + inIndex];
-                    lineSegment[outIndex] = intersectionPoints[outIndex];
+                    if (b0)
+                    {
+                        point1 = p1;
+                        point2 = intersectionPoint;
+                        intersectionPoint1 = intersectionPoint;
+                    }
+                    else
+                    {
+                        point1 = intersectionPoint;
+                        point2 = p2;
+                        intersectionPoint2 = intersectionPoint;
+                    }
 
-                    temporaryvertices[temporaryverticescount] = lineSegment[0];
-                    temporaryvertices[temporaryverticescount + 1] = lineSegment[1];
+                    temporaryvertices[temporaryverticescount] = point1;
+                    temporaryvertices[temporaryverticescount + 1] = point2;
                     temporaryverticescount += 2;
 
                     processbool[c] = false;
@@ -761,7 +750,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     intersection += 1;
                 }
-                else if (inCount == 0)
+                else
                 {
                     processbool[c] = false;
                     processbool[c + 1] = false;
@@ -780,8 +769,8 @@ public class BuildAndRunLevel : MonoBehaviour
                     processboolcount += 2;
                 }
 
-                processvertices[processverticescount] = intersectionPoints[1];
-                processvertices[processverticescount + 1] = intersectionPoints[0];
+                processvertices[processverticescount] = intersectionPoint1;
+                processvertices[processverticescount + 1] = intersectionPoint2;
                 processverticescount += 2;
                 processbool[processboolcount] = true;
                 processbool[processboolcount + 1] = true;
@@ -937,54 +926,61 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetPortals(FrustumMeta APlanes, SectorMeta BSector)
     {
-        for (int e = BSector.opaqueStartIndex; e < BSector.opaqueStartIndex + BSector.opaqueCount; e++)
-        {
-            combinedopaque[combinedopaquecount] = LevelLists.opaques[e];
-            combinedopaquecount += 1;
+        PortalQueue.Enqueue((APlanes, BSector));
 
-            combinedopaquefrustum[combinedopaquefrustumcount] = APlanes;
-            combinedopaquefrustumcount += 1;
-        }
-
-        for (int i = BSector.portalStartIndex; i < BSector.portalStartIndex + BSector.portalCount; i++)
+        while (PortalQueue.Count > 0)
         {
-            if (MaxDepth > 4096)
+            (FrustumMeta frustum, SectorMeta sector) = PortalQueue.Dequeue();
+
+            for (int e = sector.opaqueStartIndex; e < sector.opaqueStartIndex + sector.opaqueCount; e++)
             {
-                continue;
+                combinedopaque[combinedopaquecount] = LevelLists.opaques[e];
+                combinedopaquecount += 1;
+
+                combinedopaquefrustum[combinedopaquefrustumcount] = frustum;
+                combinedopaquefrustumcount += 1;
             }
 
-            planeDistance = GetPlaneSignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
-
-            if (planeDistance <= 0)
+            for (int i = sector.portalStartIndex; i < sector.portalStartIndex + sector.portalCount; i++)
             {
-                continue;
-            }
+                if (MaxDepth > 4096)
+                {
+                    continue;
+                }
 
-            int sectornumber = LevelLists.portals[i].connectedSectorID;
+                planeDistance = GetPlaneSignedDistanceToPoint(LevelLists.planes[LevelLists.portals[i].portalPlane], CamPoint);
 
-            int portalnumber = LevelLists.portals[i].portalID;
+                if (planeDistance <= 0)
+                {
+                    continue;
+                }
 
-            if (SectorsContains(LevelLists.sectors[sectornumber].sectorID))
-            {
+                int sectornumber = LevelLists.portals[i].connectedSectorID;
+
+                int portalnumber = LevelLists.portals[i].portalID;
+
+                if (SectorsContains(LevelLists.sectors[sectornumber].sectorID))
+                {
+                    MaxDepth += 1;
+
+                    PortalQueue.Enqueue((frustum, LevelLists.sectors[sectornumber]));
+
+                    continue;
+                }
+
+                ClipEdgesWithPlanes(frustum, LevelLists.portals[i]);
+
+                if (outputverticescount < 6 || outputverticescount % 2 == 1)
+                {
+                    continue;
+                }
+
+                SetClippingPlanes(outputvertices, portalnumber, CamPoint);
+
                 MaxDepth += 1;
 
-                GetPortals(APlanes, LevelLists.sectors[sectornumber]);
-
-                continue;
+                PortalQueue.Enqueue((LevelLists.frustums[portalnumber], LevelLists.sectors[sectornumber]));
             }
-
-            ClipEdgesWithPlanes(APlanes, LevelLists.portals[i]);
-
-            if (outputverticescount < 6 || outputverticescount % 2 == 1)
-            {
-                continue;
-            }
-
-            SetClippingPlanes(outputvertices, portalnumber, CamPoint);
-
-            MaxDepth += 1;
-
-            GetPortals(LevelLists.frustums[portalnumber], LevelLists.sectors[sectornumber]);
         }
     }
 
