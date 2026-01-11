@@ -269,7 +269,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         combinedpolygons = new PolygonMeta[LevelLists.polygons.Count * 10];
 
-        combinedplanes = new MathematicalPlane[LevelLists.opaques.Count * 10];
+        combinedplanes = new MathematicalPlane[LevelLists.polygons.Count * 10];
 
         processbool = new bool[128];
 
@@ -293,14 +293,14 @@ public class BuildAndRunLevel : MonoBehaviour
         int strideVertex = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector3));
         int strideTexture = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector4));
         int strideUint = System.Runtime.InteropServices.Marshal.SizeOf(typeof(uint));
-        int scratchSize = LevelLists.opaques.Count * 10 * 256;
+        int scratchSize = (LevelLists.polygons.Count * 10) * 256;
 
         processVertices = new ComputeBuffer(scratchSize, strideVertex);
         processTextures = new ComputeBuffer(scratchSize, strideTexture);
         processBool = new ComputeBuffer(scratchSize, strideUint);
         temporaryVertices = new ComputeBuffer(scratchSize, strideVertex);
         temporaryTextures = new ComputeBuffer(scratchSize, strideTexture);
-        planeBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, stridePlane, ComputeBufferType.Structured);
+        planeBuffer = new ComputeBuffer(LevelLists.polygons.Count * 10, stridePlane, ComputeBufferType.Structured);
         inputPolygonBuffer = new ComputeBuffer(LevelLists.polygons.Count * 10, stridePolygon, ComputeBufferType.Structured);
         inputTriangleBuffer = new ComputeBuffer(LevelLists.opaques.Count, strideTriangle, ComputeBufferType.Structured);
         outputTriangleBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, strideTriangle, ComputeBufferType.Append);
