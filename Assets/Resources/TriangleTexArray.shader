@@ -61,13 +61,16 @@ Shader "Custom/TriangleTexArray"
                     uvTriangle = tri.uv2; 
                 }
 
+                float4 worldPos = float4(vertexTriangle, 1.0);
+                float4 clipPos  = mul(UNITY_MATRIX_VP, worldPos);
+
                 v2f o;
-                o.pos = UnityObjectToClipPos(float4(vertexTriangle, 1.0));
+                o.worldPos = worldPos;
+                o.pos = clipPos;
                 o.uv = uvTriangle.xy;
                 o.index = uvTriangle.z; 
-                o.color = _ColorArray[uvTriangle.w];
-                o.worldPos = mul(unity_ObjectToWorld, float4(vertexTriangle, 1.0)).xyz;
-                return o; 
+                o.color = _ColorArray[uvTriangle.w]; 
+                return o;
             }
 
             fixed4 frag(v2f i) : SV_Target 
@@ -75,8 +78,7 @@ Shader "Custom/TriangleTexArray"
                 float distance = length(i.worldPos - _WorldSpaceCameraPos);
                 float brightnessFactor = lerp(0.3f, 0, clamp(distance / 10.0f, 0, 1));
                 float4 brightness = float4(clamp(i.color.rgb + brightnessFactor, 0, 1), i.color.a);
-                float4 Col = brightness * UNITY_SAMPLE_TEX2DARRAY(_MainTex, float3(i.uv, i.index));
-                return Col;
+                return UNITY_SAMPLE_TEX2DARRAY(_MainTex, float3(i.uv, i.index)) * brightness;
             }
             ENDCG
         }
