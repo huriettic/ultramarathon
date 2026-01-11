@@ -38,7 +38,7 @@ StructuredBuffer<MathematicalPlane> planeBuffer;
 StructuredBuffer<PolygonMeta> inputPolygonBuffer;
 RWStructuredBuffer<float3> processVertices;
 RWStructuredBuffer<float4> processTextures;
-RWStructuredBuffer<int> processBool;
+RWStructuredBuffer<uint> processBool;
 RWStructuredBuffer<float3> temporaryVertices;
 RWStructuredBuffer<float4> temporaryTextures;
 RWByteAddressBuffer argsBuffer;

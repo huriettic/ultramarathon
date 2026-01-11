@@ -292,14 +292,12 @@ public class BuildAndRunLevel : MonoBehaviour
         int stridePlane = System.Runtime.InteropServices.Marshal.SizeOf(typeof(MathematicalPlane));
         int strideVertex = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector3));
         int strideTexture = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector4));
-        int strideInt = System.Runtime.InteropServices.Marshal.SizeOf(typeof(int));
-        int strideBool = System.Runtime.InteropServices.Marshal.SizeOf(typeof(bool));
         int strideUint = System.Runtime.InteropServices.Marshal.SizeOf(typeof(uint));
         int scratchSize = LevelLists.opaques.Count * 10 * 256;
 
         processVertices = new ComputeBuffer(scratchSize, strideVertex);
         processTextures = new ComputeBuffer(scratchSize, strideTexture);
-        processBool = new ComputeBuffer(scratchSize, strideInt);
+        processBool = new ComputeBuffer(scratchSize, strideUint);
         temporaryVertices = new ComputeBuffer(scratchSize, strideVertex);
         temporaryTextures = new ComputeBuffer(scratchSize, strideTexture);
         planeBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, stridePlane, ComputeBufferType.Structured);
