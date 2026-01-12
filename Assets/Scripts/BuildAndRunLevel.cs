@@ -950,6 +950,8 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     combinedpolygons[combinedpolygonscount] = polygon;
                     combinedpolygonscount += 1;
+
+                    continue;
                 }
                 else
                 {
