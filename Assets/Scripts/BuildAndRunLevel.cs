@@ -953,42 +953,40 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     continue;
                 }
-                else
+
+                int connectedstart = LevelLists.sectors[connectedsector].polygonStartIndex;
+
+                int connectedcount = LevelLists.sectors[connectedsector].polygonCount;
+
+                if (SectorsContains(LevelLists.sectors[connectedsector].sectorID))
                 {
-                    int connectedstart = LevelLists.sectors[connectedsector].polygonStartIndex;
-
-                    int connectedcount = LevelLists.sectors[connectedsector].polygonCount;
-
-                    if (SectorsContains(LevelLists.sectors[connectedsector].sectorID))
-                    {
-                        MaxDepth += 1;
-
-                        NextSector.polygonStartIndex = connectedstart;
-                        NextSector.polygonCount = connectedcount;
-
-                        NextSector.planeStartIndex = sector.planeStartIndex;
-                        NextSector.planeCount = sector.planeCount;
-
-                        NextSector.sectorID = connectedsector;
-
-                        PortalQueue.Enqueue(NextSector);
-
-                        continue;
-                    }
-
-                    ClipEdgesWithPlanes(sector, LevelLists.polygons[i]);
-
-                    if (outputverticescount < 6 || outputverticescount % 2 == 1)
-                    {
-                        continue;
-                    }
-
-                    SetClippingPlanes(outputvertices, connectedsector, connectedstart, connectedcount, CamPoint);
-
                     MaxDepth += 1;
 
+                    NextSector.polygonStartIndex = connectedstart;
+                    NextSector.polygonCount = connectedcount;
+
+                    NextSector.planeStartIndex = sector.planeStartIndex;
+                    NextSector.planeCount = sector.planeCount;
+
+                    NextSector.sectorID = connectedsector;
+
                     PortalQueue.Enqueue(NextSector);
+
+                    continue;
                 }
+
+                ClipEdgesWithPlanes(sector, LevelLists.polygons[i]);
+
+                if (outputverticescount < 6 || outputverticescount % 2 == 1)
+                {
+                    continue;
+                }
+
+                SetClippingPlanes(outputvertices, connectedsector, connectedstart, connectedcount, CamPoint);
+
+                MaxDepth += 1;
+
+                PortalQueue.Enqueue(NextSector);
             }
         }
     }
