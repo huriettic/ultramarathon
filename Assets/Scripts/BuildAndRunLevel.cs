@@ -563,8 +563,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         int IndexCount = 0;
 
-        int count = outputverticescount;
-        for (int i = 0; i < count; i += 2)
+        for (int i = 0; i < outputverticescount; i += 2)
         {
             Vector3 p1 = vertices[i];
             Vector3 p2 = vertices[i + 1];
@@ -709,8 +708,8 @@ public class BuildAndRunLevel : MonoBehaviour
                 Vector3 p1 = processvertices[c];
                 Vector3 p2 = processvertices[c + 1];
 
-                float d1 = GetPlaneSignedDistanceToPoint(combinedplanes[b], processvertices[c]);
-                float d2 = GetPlaneSignedDistanceToPoint(combinedplanes[b], processvertices[c + 1]);
+                float d1 = GetPlaneSignedDistanceToPoint(combinedplanes[b], p1);
+                float d2 = GetPlaneSignedDistanceToPoint(combinedplanes[b], p2);
 
                 bool b0 = d1 >= 0;
                 bool b1 = d2 >= 0;
@@ -975,7 +974,7 @@ public class BuildAndRunLevel : MonoBehaviour
                     continue;
                 }
 
-                ClipEdgesWithPlanes(sector, LevelLists.polygons[i]);
+                ClipEdgesWithPlanes(sector, polygon);
 
                 if (outputverticescount < 6 || outputverticescount % 2 == 1)
                 {
