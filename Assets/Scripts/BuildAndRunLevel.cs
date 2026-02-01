@@ -1204,7 +1204,83 @@ public class BuildAndRunLevel : MonoBehaviour
                 double X0 = (float)level.Endpoints[vB].X / 1024 * Scale;
                 double Z0 = (float)level.Endpoints[vB].Y / 1024 * Scale * -1;
 
-                if (ownerA != -1)
+                if (ownerB == -1)
+                {
+                    double V0 = (float)polygon.CeilingHeight / 1024 * Scale;
+                    double V1 = (float)polygon.FloorHeight / 1024 * Scale;
+                    
+                    CW.Clear();
+                    CWUV.Clear();
+                    CWUVOffset.Clear();
+                    CWUVOffsetZ.Clear();
+
+                    GetVerts(X0, X1, V1, V0, Z0, Z1);
+
+                    if (sideIndex != -1)
+                    {
+                        MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
+
+                        if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
+                            level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
+                        {
+                            Render.Add(-1);
+
+                            MeshTexture.Add(-1);
+
+                            MeshTextureCollection.Add(-1);
+                        }
+                        else
+                        {
+                            Render.Add(ownerA);
+
+                            MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
+
+                            MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
+                        }
+                    }
+                    else
+                    {
+                        Render.Add(-1);
+
+                        MeshTexture.Add(-1);
+
+                        MeshTextureCollection.Add(-1);
+                    }
+
+                    Plane.Add(ownerA);
+
+                    Portal.Add(-1);
+
+                    Collision.Add(ownerA);
+
+                    Transparent.Add(-1);
+
+                    Mesh mesh = new Mesh();
+
+                    mesh.SetVertices(CW);
+
+                    if (sideIndex == -1)
+                    {
+                        mesh.SetUVs(0, CWUV);
+                    }
+                    else
+                    {
+                        if (level.Sides[sideIndex].Primary.Texture.IsEmpty())
+                        {
+                            mesh.SetUVs(0, CWUV);
+                        }
+                        else
+                        {
+                            mesh.SetUVs(0, CWUVOffsetZ);
+                        }
+                    }
+
+                    mesh.SetTriangles(walltri, 0);
+                    mesh.RecalculateNormals();
+
+                    meshes.Add(mesh);
+                }
+                else
                 {
                     if (polygon.CeilingHeight > line.LowestAdjacentCeiling)
                     {
@@ -1373,56 +1449,36 @@ public class BuildAndRunLevel : MonoBehaviour
                             CWUV.Clear();
                             CWUVOffset.Clear();
                             CWUVOffsetZ.Clear();
- 
+
                             GetVerts(X0, X1, YF, YC, Z0, Z1);
-                            
+
                             Plane.Add(ownerA);
 
-                            if (ownerB != -1)
-                            {
-                                Portal.Add(ownerB);
-                            }
-                            else
-                            {
-                                Portal.Add(-1);
-                            }
+                            Portal.Add(ownerB);
 
-                            if (ownerB == -1)
+                            if (sideIndex != -1)
                             {
-                                if (sideIndex != -1)
+                                if (!level.Sides[sideIndex].Transparent.Texture.IsEmpty())
                                 {
-                                    if (!level.Sides[sideIndex].Primary.Texture.IsEmpty())
+                                    if (level.Sides[sideIndex].Transparent.Texture.Collection == 27 || level.Sides[sideIndex].Transparent.Texture.Collection == 28 ||
+                                        level.Sides[sideIndex].Transparent.Texture.Collection == 29 || level.Sides[sideIndex].Transparent.Texture.Collection == 30)
                                     {
-                                        if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
-                                            level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
-                                        {
-                                            Render.Add(-1);
+                                        Render.Add(-1);
 
-                                            Transparent.Add(-1);
-                                        }
-                                        else
-                                        {
-                                            Render.Add(ownerA);
-
-                                            Transparent.Add(-1);
-                                        }
-
-                                        MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
-
-                                        MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
-
-                                        MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
+                                        Transparent.Add(-1);
                                     }
                                     else
                                     {
                                         Render.Add(-1);
 
-                                        Transparent.Add(-1);
-
-                                        MeshTexture.Add(-1);
-
-                                        MeshTextureCollection.Add(-1);
+                                        Transparent.Add(ownerA);
                                     }
+
+                                    MakeSides(level.Sides[sideIndex].Transparent, level.Sides[sideIndex].TransparentLightsourceIndex);
+
+                                    MeshTexture.Add(level.Sides[sideIndex].Transparent.Texture.Bitmap);
+
+                                    MeshTextureCollection.Add(level.Sides[sideIndex].Transparent.Texture.Collection);
                                 }
                                 else
                                 {
@@ -1437,51 +1493,13 @@ public class BuildAndRunLevel : MonoBehaviour
                             }
                             else
                             {
-                                if (sideIndex != -1)
-                                {
-                                    if (!level.Sides[sideIndex].Transparent.Texture.IsEmpty())
-                                    {
-                                        if (level.Sides[sideIndex].Transparent.Texture.Collection == 27 || level.Sides[sideIndex].Transparent.Texture.Collection == 28 ||
-                                            level.Sides[sideIndex].Transparent.Texture.Collection == 29 || level.Sides[sideIndex].Transparent.Texture.Collection == 30)
-                                        {
-                                            Render.Add(-1);
+                                Render.Add(-1);
 
-                                            Transparent.Add(-1);
-                                        }
-                                        else
-                                        {
-                                            Render.Add(-1);
+                                Transparent.Add(-1);
 
-                                            Transparent.Add(ownerA);
-                                        }
+                                MeshTexture.Add(-1);
 
-                                        MakeSides(level.Sides[sideIndex].Transparent, level.Sides[sideIndex].TransparentLightsourceIndex);
-
-                                        MeshTexture.Add(level.Sides[sideIndex].Transparent.Texture.Bitmap);
-
-                                        MeshTextureCollection.Add(level.Sides[sideIndex].Transparent.Texture.Collection);
-                                    }
-                                    else
-                                    {
-                                        Render.Add(-1);
-
-                                        Transparent.Add(-1);
-
-                                        MeshTexture.Add(-1);
-
-                                        MeshTextureCollection.Add(-1);
-                                    }
-                                }
-                                else
-                                {
-                                    Render.Add(-1);
-
-                                    Transparent.Add(-1);
-
-                                    MeshTexture.Add(-1);
-
-                                    MeshTextureCollection.Add(-1);
-                                }
+                                MeshTextureCollection.Add(-1);
                             }
 
                             if (line.Solid == true)
@@ -1497,18 +1515,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
                             mesh.SetVertices(CW);
 
-                            if (ownerB == -1)
+                            if (sideIndex != -1)
                             {
-                                if (sideIndex != -1)
+                                if (!level.Sides[sideIndex].Transparent.Texture.IsEmpty())
                                 {
-                                    if (!level.Sides[sideIndex].Primary.Texture.IsEmpty())
-                                    {
-                                        mesh.SetUVs(0, CWUVOffsetZ);
-                                    }
-                                    else
-                                    {
-                                        mesh.SetUVs(0, CWUV);
-                                    }
+                                    mesh.SetUVs(0, CWUVOffsetZ);
                                 }
                                 else
                                 {
@@ -1517,21 +1528,7 @@ public class BuildAndRunLevel : MonoBehaviour
                             }
                             else
                             {
-                                if (sideIndex != -1)
-                                {
-                                    if (!level.Sides[sideIndex].Transparent.Texture.IsEmpty())
-                                    {
-                                        mesh.SetUVs(0, CWUVOffsetZ);
-                                    }
-                                    else
-                                    {
-                                        mesh.SetUVs(0, CWUV);
-                                    }
-                                }
-                                else
-                                {
-                                    mesh.SetUVs(0, CWUV);
-                                }
+                                mesh.SetUVs(0, CWUV);
                             }
 
                             mesh.SetTriangles(walltri, 0);
@@ -1554,7 +1551,7 @@ public class BuildAndRunLevel : MonoBehaviour
                             CWUVOffsetZ.Clear();
 
                             GetVerts(X0, X1, YF0, YF1, Z0, Z1);
-    
+
                             if (sideIndex != -1)
                             {
                                 if (level.Sides[sideIndex].Type == SideType.Low)
@@ -1711,7 +1708,7 @@ public class BuildAndRunLevel : MonoBehaviour
                                 else if (level.Sides[sideIndex].Type == SideType.Split)
                                 {
                                     MakeSides(level.Sides[sideIndex].Secondary, level.Sides[sideIndex].SecondaryLightsourceIndex);
-                                    
+
                                     if (level.Sides[sideIndex].Secondary.Texture.Collection == 27 || level.Sides[sideIndex].Secondary.Texture.Collection == 28 ||
                                         level.Sides[sideIndex].Secondary.Texture.Collection == 29 || level.Sides[sideIndex].Secondary.Texture.Collection == 30)
                                     {
