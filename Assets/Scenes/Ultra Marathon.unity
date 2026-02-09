@@ -399,7 +399,6 @@ MonoBehaviour:
   LevelIsSaved: 0
   Name: Hyper Cube
   Textures: Textures
-  computeShader: {fileID: 7200000, guid: aad728c3949e0b74aaa203f47d4241b2, type: 3}
   LevelNumber: 0
   speed: 7
   jumpHeight: 2

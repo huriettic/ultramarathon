@@ -1,65 +1,53 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 using Weland;
 
-[Serializable]
-public struct Edge
-{
-    public Vector3 start;
-    public Vector3 end;
-};
-
-[Serializable]
 public struct Triangle
 {
-    public Vector3 v0, v1, v2;
-    public Vector4 uv0, uv1, uv2;
+    public float3 v0, v1, v2;
+    public float4 uv0, uv1, uv2;
 };
 
-[Serializable]
 public struct MathematicalPlane
 {
-    public Vector3 normal;
+    public float3 normal;
     public float distance;
 };
 
-[Serializable]
-public struct StartPos
+public struct StartPosition
 {
-    public Vector3 Position;
-    public int SectorID;
+    public float3 playerStart;
+    public int sectorId;
 };
 
-[Serializable]
 public struct LevelLight
 {
     public Color TriangleLight;
 };
 
-[Serializable]
 public struct PolygonMeta
 {
-    public int lineStartIndex;
-    public int lineCount;
+    public int edgeStartIndex;
+    public int edgeCount;
 
-    public int opaqueStartIndex;
-    public int opaqueCount;
+    public int triangleStartIndex;
+    public int triangleCount;
 
-    public int collisionStartIndex;
-    public int collisionCount;
+    public int connectedSectorId;
+    public int sectorId;
 
-    public int connectedSectorID;
-    public int sectorID;
-
-    public int planeStartIndex;
-    public int planeCount;
+    public int collider;
+    public int opaque;
 
     public int plane;
 };
 
-[Serializable]
 public struct SectorMeta
 {
     public int polygonStartIndex;
@@ -68,8 +56,592 @@ public struct SectorMeta
     public int planeStartIndex;
     public int planeCount;
 
-    public int sectorID;
+    public int sectorId;
 };
+
+public struct TrianglesMeta
+{
+    public int triangleStartIndex;
+    public int triangleCount;
+
+    public int planeStartIndex;
+    public int planeCount;
+
+    public int sectorId;
+};
+
+public struct PortalMeta
+{
+    public int polygonStartIndex;
+    public int polygonCount;
+
+    public int edgeStartIndex;
+    public int edgeCount;
+
+    public int connectedSectorId;
+    public int sectorId;
+
+    public int planeStartIndex;
+    public int planeCount;
+
+    public int portalContact;
+};
+
+[BurstCompile]
+public struct SectorsJob : IJobParallelFor
+{
+    [ReadOnly] public float3 point;
+    [ReadOnly] public NativeArray<SectorMeta> currentSectors;
+    [ReadOnly] public NativeArray<PolygonMeta> polygons;
+    [ReadOnly] public NativeArray<SectorMeta> sectors;
+    [ReadOnly] public NativeArray<SectorMeta> contains;
+    [ReadOnly] public NativeArray<MathematicalPlane> planes;
+
+    public NativeList<TrianglesMeta>.ParallelWriter rawTriangles;
+    public NativeList<PortalMeta>.ParallelWriter rawPortals;
+
+    public void Execute(int index)
+    {
+        SectorMeta sector = currentSectors[index];
+
+        for (int a = sector.polygonStartIndex; a < sector.polygonStartIndex + sector.polygonCount; a++)
+        {
+            PolygonMeta polygon = polygons[a];
+
+            float planeDistance = math.dot(planes[polygon.plane].normal, point) + planes[polygon.plane].distance;
+
+            if (planeDistance <= 0)
+            {
+                continue;
+            }
+
+            int render = polygon.opaque;
+
+            int connectedsector = polygon.connectedSectorId;
+
+            if (render != -1)
+            {
+                rawTriangles.AddNoResize(new TrianglesMeta
+                {
+                    triangleStartIndex = polygon.triangleStartIndex,
+                    triangleCount = polygon.triangleCount,
+
+                    planeStartIndex = sector.planeStartIndex,
+                    planeCount = sector.planeCount,
+
+                    sectorId = polygon.sectorId
+                });
+
+                continue;
+            }
+
+            if (connectedsector != -1)
+            {
+                SectorMeta sectorpolygon = sectors[connectedsector];
+
+                int contact = 1;
+
+                for (int b = 0; b < contains.Length; b++)
+                {
+                    if (contains[b].sectorId == sectorpolygon.sectorId)
+                    {
+                        contact = 0;
+                        break;
+                    }
+                }
+
+                rawPortals.AddNoResize(new PortalMeta
+                {
+                    polygonStartIndex = sectorpolygon.polygonStartIndex,
+                    polygonCount = sectorpolygon.polygonCount,
+
+                    edgeStartIndex = polygon.edgeStartIndex,
+                    edgeCount = polygon.edgeCount,
+
+                    connectedSectorId = polygon.connectedSectorId,
+                    sectorId = polygon.sectorId,
+
+                    planeStartIndex = sector.planeStartIndex,
+                    planeCount = sector.planeCount,
+
+                    portalContact = contact
+                });
+            }
+        }
+    }
+}
+
+[BurstCompile]
+public struct ClipTrianglesJob : IJobParallelFor
+{
+    [ReadOnly] public NativeArray<TrianglesMeta> rawTriangles;
+    [ReadOnly] public NativeArray<MathematicalPlane> currentFrustums;
+    [ReadOnly] public NativeArray<float3> vertices;
+    [ReadOnly] public NativeArray<float4> textures;
+    [ReadOnly] public NativeArray<int> triangles;
+
+    [NativeDisableParallelForRestriction] public NativeArray<float3> processvertices;
+    [NativeDisableParallelForRestriction] public NativeArray<float4> processtextures;
+    [NativeDisableParallelForRestriction] public NativeArray<bool> processbool;
+
+    [NativeDisableParallelForRestriction] public NativeArray<float3> temporaryvertices;
+    [NativeDisableParallelForRestriction] public NativeArray<float4> temporarytextures;
+
+    public NativeList<Triangle>.ParallelWriter finalTriangles;
+
+    public void Execute(int index)
+    {
+        const int MaxVertsPerTri = 256;
+
+        int baseIndex = index * MaxVertsPerTri;
+
+        if (baseIndex >= processvertices.Length)
+        {
+            return;
+        }
+
+        TrianglesMeta tm = rawTriangles[index];
+
+        for (int a = tm.triangleStartIndex; a < tm.triangleStartIndex + tm.triangleCount; a += 3)
+        {
+            int processverticescount = 0;
+            int processtexturescount = 0;
+            int processboolcount = 0;
+
+            processvertices[baseIndex + processverticescount] = vertices[triangles[a]];
+            processvertices[baseIndex + processverticescount + 1] = vertices[triangles[a + 1]];
+            processvertices[baseIndex + processverticescount + 2] = vertices[triangles[a + 2]];
+            processverticescount += 3;
+            processtextures[baseIndex + processtexturescount] = textures[triangles[a]];
+            processtextures[baseIndex + processtexturescount + 1] = textures[triangles[a + 1]];
+            processtextures[baseIndex + processtexturescount + 2] = textures[triangles[a + 2]];
+            processtexturescount += 3;
+            processbool[baseIndex + processboolcount] = true;
+            processbool[baseIndex + processboolcount + 1] = true;
+            processbool[baseIndex + processboolcount + 2] = true;
+            processboolcount += 3;
+
+            for (int b = tm.planeStartIndex; b < tm.planeStartIndex + tm.planeCount; b++)
+            {
+                int addTriangles = 0;
+
+                int temporaryverticescount = 0;
+                int temporarytexturescount = 0;
+
+                for (int c = baseIndex; c < baseIndex + processverticescount; c += 3)
+                {
+                    if (processbool[c] == false && processbool[c + 1] == false && processbool[c + 2] == false)
+                    {
+                        continue;
+                    }
+
+                    float3 v0 = processvertices[c];
+                    float3 v1 = processvertices[c + 1];
+                    float3 v2 = processvertices[c + 2];
+
+                    float4 uv0 = processtextures[c];
+                    float4 uv1 = processtextures[c + 1];
+                    float4 uv2 = processtextures[c + 2];
+
+                    float d0 = math.dot(currentFrustums[b].normal, v0) + currentFrustums[b].distance;
+                    float d1 = math.dot(currentFrustums[b].normal, v1) + currentFrustums[b].distance;
+                    float d2 = math.dot(currentFrustums[b].normal, v2) + currentFrustums[b].distance;
+
+                    bool b0 = d0 >= 0;
+                    bool b1 = d1 >= 0;
+                    bool b2 = d2 >= 0;
+
+                    if (b0 && b1 && b2)
+                    {
+                        continue;
+                    }
+                    else if ((b0 && !b1 && !b2) || (!b0 && b1 && !b2) || (!b0 && !b1 && b2))
+                    {
+                        float3 inV, outV1, outV2;
+                        float4 inUV, outUV1, outUV2;
+                        float inD, outD1, outD2;
+
+                        if (b0)
+                        {
+                            inV = v0;
+                            inUV = uv0;
+                            inD = d0;
+                            outV1 = v1;
+                            outUV1 = uv1;
+                            outD1 = d1;
+                            outV2 = v2;
+                            outUV2 = uv2;
+                            outD2 = d2;
+                        }
+                        else if (b1)
+                        {
+                            inV = v1;
+                            inUV = uv1;
+                            inD = d1;
+                            outV1 = v2;
+                            outUV1 = uv2;
+                            outD1 = d2;
+                            outV2 = v0;
+                            outUV2 = uv0;
+                            outD2 = d0;
+                        }
+                        else
+                        {
+                            inV = v2;
+                            inUV = uv2;
+                            inD = d2;
+                            outV1 = v0;
+                            outUV1 = uv0;
+                            outD1 = d0;
+                            outV2 = v1;
+                            outUV2 = uv1;
+                            outD2 = d1;
+                        }
+
+                        float t1 = inD / (inD - outD1);
+                        float t2 = inD / (inD - outD2);
+
+                        temporaryvertices[baseIndex + temporaryverticescount] = inV;
+                        temporaryvertices[baseIndex + temporaryverticescount + 1] = math.lerp(inV, outV1, t1);
+                        temporaryvertices[baseIndex + temporaryverticescount + 2] = math.lerp(inV, outV2, t2);
+                        temporaryverticescount += 3;
+                        temporarytextures[baseIndex + temporarytexturescount] = inUV;
+                        temporarytextures[baseIndex + temporarytexturescount + 1] = math.lerp(inUV, outUV1, t1);
+                        temporarytextures[baseIndex + temporarytexturescount + 2] = math.lerp(inUV, outUV2, t2);
+                        temporarytexturescount += 3;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
+
+                        addTriangles += 1;
+                    }
+                    else if ((!b0 && b1 && b2) || (b0 && !b1 && b2) || (b0 && b1 && !b2))
+                    {
+                        float3 inV1, inV2, outV;
+                        float4 inUV1, inUV2, outUV;
+                        float inD1, inD2, outD;
+
+                        if (!b0)
+                        {
+                            outV = v0;
+                            outUV = uv0;
+                            outD = d0;
+                            inV1 = v1;
+                            inUV1 = uv1;
+                            inD1 = d1;
+                            inV2 = v2;
+                            inUV2 = uv2;
+                            inD2 = d2;
+                        }
+                        else if (!b1)
+                        {
+                            outV = v1;
+                            outUV = uv1;
+                            outD = d1;
+                            inV1 = v2;
+                            inUV1 = uv2;
+                            inD1 = d2;
+                            inV2 = v0;
+                            inUV2 = uv0;
+                            inD2 = d0;
+                        }
+                        else
+                        {
+                            outV = v2;
+                            outUV = uv2;
+                            outD = d2;
+                            inV1 = v0;
+                            inUV1 = uv0;
+                            inD1 = d0;
+                            inV2 = v1;
+                            inUV2 = uv1;
+                            inD2 = d1;
+                        }
+
+                        float t1 = inD1 / (inD1 - outD);
+                        float t2 = inD2 / (inD2 - outD);
+
+                        float3 vA = math.lerp(inV1, outV, t1);
+                        float3 vB = math.lerp(inV2, outV, t2);
+
+                        float4 uvA = math.lerp(inUV1, outUV, t1);
+                        float4 uvB = math.lerp(inUV2, outUV, t2);
+
+                        temporaryvertices[baseIndex + temporaryverticescount] = inV1;
+                        temporaryvertices[baseIndex + temporaryverticescount + 1] = inV2;
+                        temporaryvertices[baseIndex + temporaryverticescount + 2] = vA;
+                        temporaryverticescount += 3;
+                        temporarytextures[baseIndex + temporarytexturescount] = inUV1;
+                        temporarytextures[baseIndex + temporarytexturescount + 1] = inUV2;
+                        temporarytextures[baseIndex + temporarytexturescount + 2] = uvA;
+                        temporarytexturescount += 3;
+                        temporaryvertices[baseIndex + temporaryverticescount] = vA;
+                        temporaryvertices[baseIndex + temporaryverticescount + 1] = inV2;
+                        temporaryvertices[baseIndex + temporaryverticescount + 2] = vB;
+                        temporaryverticescount += 3;
+                        temporarytextures[baseIndex + temporarytexturescount] = uvA;
+                        temporarytextures[baseIndex + temporarytexturescount + 1] = inUV2;
+                        temporarytextures[baseIndex + temporarytexturescount + 2] = uvB;
+                        temporarytexturescount += 3;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
+
+                        addTriangles += 2;
+                    }
+                    else
+                    {
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
+                    }
+                }
+
+                if (addTriangles > 0)
+                {
+                    for (int d = baseIndex; d < baseIndex + temporaryverticescount; d += 3)
+                    {
+                        processvertices[baseIndex + processverticescount] = temporaryvertices[d];
+                        processvertices[baseIndex + processverticescount + 1] = temporaryvertices[d + 1];
+                        processvertices[baseIndex + processverticescount + 2] = temporaryvertices[d + 2];
+                        processverticescount += 3;
+                        processtextures[baseIndex + processtexturescount] = temporarytextures[d];
+                        processtextures[baseIndex + processtexturescount + 1] = temporarytextures[d + 1];
+                        processtextures[baseIndex + processtexturescount + 2] = temporarytextures[d + 2];
+                        processtexturescount += 3;
+                        processbool[baseIndex + processboolcount] = true;
+                        processbool[baseIndex + processboolcount + 1] = true;
+                        processbool[baseIndex + processboolcount + 2] = true;
+                        processboolcount += 3;
+                    }
+                }
+            }
+
+            for (int e = baseIndex; e < baseIndex + processverticescount; e += 3)
+            {
+                if (processbool[e] == true && processbool[e + 1] == true && processbool[e + 2] == true)
+                {
+                    finalTriangles.AddNoResize(new Triangle
+                    {
+                        v0 = processvertices[e],
+                        v1 = processvertices[e + 1],
+                        v2 = processvertices[e + 2],
+                        uv0 = processtextures[e],
+                        uv1 = processtextures[e + 1],
+                        uv2 = processtextures[e + 2]
+                    });
+                }
+            }
+        }
+    }
+}
+
+[BurstCompile]
+public struct ClipPortalsJob : IJobParallelFor
+{
+    [ReadOnly] public NativeArray<PortalMeta> rawPortals;
+    [ReadOnly] public NativeArray<MathematicalPlane> currentFrustums;
+    [ReadOnly] public NativeArray<MathematicalPlane> originalFrustum;
+    [ReadOnly] public NativeArray<float3> vertices;
+    [ReadOnly] public NativeArray<int> edges;
+    [ReadOnly] public float3 point;
+
+    [NativeDisableParallelForRestriction] public NativeArray<float3> outedges;
+    [NativeDisableParallelForRestriction] public NativeArray<float3> processedgevertices;
+    [NativeDisableParallelForRestriction] public NativeArray<bool> processedgebool;
+    [NativeDisableParallelForRestriction] public NativeArray<float3> temporaryedgevertices;
+    [NativeDisableParallelForRestriction] public NativeArray<MathematicalPlane> nextFrustums;
+
+    public NativeList<SectorMeta>.ParallelWriter nextSectors;
+
+    public void Execute(int index)
+    {
+        const int MaxVertsPerEdge = 256;
+
+        int baseIndex = index * MaxVertsPerEdge;
+
+        if (baseIndex >= processedgevertices.Length)
+        {
+            return;
+        }
+
+        PortalMeta portal = rawPortals[index];
+
+        int connectedstart = portal.polygonStartIndex;
+        int connectedcount = portal.polygonCount;
+        int connectedsector = portal.connectedSectorId;
+
+        if (portal.portalContact == 0)
+        {
+            for (int i = 0; i < originalFrustum.Length; i++)
+            {
+                nextFrustums[baseIndex + i] = originalFrustum[i];
+            }
+
+            nextSectors.AddNoResize(new SectorMeta
+            {
+                polygonStartIndex = connectedstart,
+                polygonCount = connectedcount,
+                planeStartIndex = baseIndex,
+                planeCount = originalFrustum.Length,
+                sectorId = connectedsector
+            });
+
+            return;
+        }
+
+        int outedgescount = 0;
+        int processedgescount = 0;
+        int processedgesboolcount = 0;
+
+        for (int a = portal.edgeStartIndex; a < portal.edgeStartIndex + portal.edgeCount; a += 2)
+        {
+            processedgevertices[baseIndex + processedgescount] = vertices[edges[a]];
+            processedgevertices[baseIndex + processedgescount + 1] = vertices[edges[a + 1]];
+            processedgescount += 2;
+            processedgebool[baseIndex + processedgesboolcount] = true;
+            processedgebool[baseIndex + processedgesboolcount + 1] = true;
+            processedgesboolcount += 2;
+        }
+
+        for (int b = portal.planeStartIndex; b < portal.planeStartIndex + portal.planeCount; b++)
+        {
+            int intersection = 0;
+            int temporaryverticescount = 0;
+
+            float3 intersectionPoint1 = float3.zero;
+            float3 intersectionPoint2 = float3.zero;
+
+            for (int c = baseIndex; c < baseIndex + processedgescount; c += 2)
+            {
+                if (processedgebool[c] == false && processedgebool[c + 1] == false)
+                {
+                    continue;
+                }
+
+                float3 p1 = processedgevertices[c];
+                float3 p2 = processedgevertices[c + 1];
+
+                float d1 = math.dot(currentFrustums[b].normal, p1) + currentFrustums[b].distance;
+                float d2 = math.dot(currentFrustums[b].normal, p2) + currentFrustums[b].distance;
+
+                bool b0 = d1 >= 0;
+                bool b1 = d2 >= 0;
+
+                if (b0 && b1)
+                {
+                    continue;
+                }
+                else if ((b0 && !b1) || (!b0 && b1))
+                {
+                    float3 point1;
+                    float3 point2;
+
+                    float t = d1 / (d1 - d2);
+
+                    float3 intersectionPoint = math.lerp(p1, p2, t);
+
+                    if (b0)
+                    {
+                        point1 = p1;
+                        point2 = intersectionPoint;
+                        intersectionPoint1 = intersectionPoint;
+                    }
+                    else
+                    {
+                        point1 = intersectionPoint;
+                        point2 = p2;
+                        intersectionPoint2 = intersectionPoint;
+                    }
+
+                    temporaryedgevertices[baseIndex + temporaryverticescount] = point1;
+                    temporaryedgevertices[baseIndex + temporaryverticescount + 1] = point2;
+                    temporaryverticescount += 2;
+
+                    processedgebool[c] = false;
+                    processedgebool[c + 1] = false;
+
+                    intersection += 1;
+                }
+                else
+                {
+                    processedgebool[c] = false;
+                    processedgebool[c + 1] = false;
+                }
+            }
+
+            if (intersection == 2)
+            {
+                for (int d = baseIndex; d < baseIndex + temporaryverticescount; d += 2)
+                {
+                    processedgevertices[baseIndex + processedgescount] = temporaryedgevertices[d];
+                    processedgevertices[baseIndex + processedgescount + 1] = temporaryedgevertices[d + 1];
+                    processedgescount += 2;
+                    processedgebool[baseIndex + processedgesboolcount] = true;
+                    processedgebool[baseIndex + processedgesboolcount + 1] = true;
+                    processedgesboolcount += 2;
+                }
+
+                processedgevertices[baseIndex + processedgescount] = intersectionPoint1;
+                processedgevertices[baseIndex + processedgescount + 1] = intersectionPoint2;
+                processedgescount += 2;
+                processedgebool[baseIndex + processedgesboolcount] = true;
+                processedgebool[baseIndex + processedgesboolcount + 1] = true;
+                processedgesboolcount += 2;
+            }
+        }
+
+        for (int e = baseIndex; e < baseIndex + processedgescount; e += 2)
+        {
+            if (processedgebool[e] == true && processedgebool[e + 1] == true)
+            {
+                outedges[baseIndex + outedgescount] = processedgevertices[e];
+                outedges[baseIndex + outedgescount + 1] = processedgevertices[e + 1];
+                outedgescount += 2;
+            }
+        }
+
+        if (outedgescount < 6 || outedgescount % 2 == 1)
+        {
+            return;
+        }
+
+        int indexCount = 0;
+
+        for (int f = baseIndex; f < baseIndex + outedgescount; f += 2)
+        {
+            float3 p0 = outedges[f];
+            float3 p1 = outedges[f + 1];
+
+            float3 normal = math.cross(p0 - p1, point - p1);
+            float magnitude = math.length(normal);
+
+            if (magnitude < 0.01f)
+            {
+                continue;
+            }
+
+            float3 normalized = normal / magnitude;
+            float distance = -math.dot(normalized, p0);
+
+            nextFrustums[baseIndex + indexCount] = new MathematicalPlane
+            {
+                normal = normalized,
+                distance = distance
+            };
+            indexCount += 1;
+        }
+
+        nextSectors.AddNoResize(new SectorMeta
+        {
+            polygonStartIndex = connectedstart,
+            polygonCount = connectedcount,
+            planeStartIndex = baseIndex,
+            planeCount = indexCount,
+            sectorId = connectedsector
+        });
+    }
+}
 
 public class BuildAndRunLevel : MonoBehaviour
 {
@@ -80,8 +652,6 @@ public class BuildAndRunLevel : MonoBehaviour
     public string Name = "Hyper Cube";
 
     public string Textures = "Textures";
-
-    public ComputeShader computeShader;
 
     public Level level;
 
@@ -99,34 +669,16 @@ public class BuildAndRunLevel : MonoBehaviour
     private Vector2 currentRotation;
     private Vector3 currentForce;
 
-    private int kernel;
-    private ComputeBuffer processVertices;
-    private ComputeBuffer processTextures;
-    private ComputeBuffer processBool;
-    private ComputeBuffer temporaryVertices;
-    private ComputeBuffer temporaryTextures;
-    private ComputeBuffer inputTriangleBuffer;
-    private ComputeBuffer inputPolygonBuffer;
-    private ComputeBuffer planeBuffer;
-    private ComputeBuffer outputTriangleBuffer;
-    private ComputeBuffer argsBuffer;
+    private GraphicsBuffer triBuffer;
 
     // Default scale is 2.5, but Unreal tournament is 128
     private float Scale = 2.5f;
 
     private CharacterController Player;
 
-    private float planeDistance;
-
     private bool radius;
 
     private bool check;
-
-    private int MaxDepth;
-
-    private Mesh opaquemesh;
-
-    private Mesh transparentmesh;
 
     private Color[] LightColor;
 
@@ -136,41 +688,29 @@ public class BuildAndRunLevel : MonoBehaviour
 
     private SectorMeta CurrentSector;
 
-    private SectorMeta NextSector;
-
     private GameObject CollisionObjects;
 
-    private bool[] processbool;
+    private NativeArray<bool> processbool;
+    private NativeArray<float3> processvertices;
+    private NativeArray<float4> processtextures;
+    private NativeArray<float3> temporaryvertices;
+    private NativeArray<float4> temporarytextures;
+    private NativeArray<float3> outEdges;
+    private NativeArray<float3> processedgevertices;
+    private NativeArray<bool> processedgebool;
+    private NativeArray<float3> temporaryedgevertices;
+    private NativeArray<MathematicalPlane> planeA;
+    private NativeArray<MathematicalPlane> planeB;
+    private NativeList<SectorMeta> sideA;
+    private NativeList<SectorMeta> sideB;
+    private NativeList<Triangle> outTriangles;
+    private NativeList<TrianglesMeta> rawTriangles;
+    private NativeList<PortalMeta> rawPortals;
+    private NativeList<SectorMeta> contains;
+    private NativeList<SectorMeta> oldContains;
+    private NativeList<MathematicalPlane> OriginalFrustum;
 
-    private Vector3[] processvertices;
-
-    private Vector3[] temporaryvertices;
-
-    private Vector3[] outputvertices;
-
-    private PolygonMeta[] combinedpolygons;
-
-    private MathematicalPlane[] combinedplanes;
-
-    private SectorMeta[] oldsectors;
-
-    private SectorMeta[] sectors;
-
-    private uint[] uintArgs;
-
-    private int sectorscount;
-
-    private int oldsectorscount;
-
-    private int combinedpolygonscount;
-
-    private int combinedplanescount;
-
-    private int outputverticescount;
-
-    private Queue<SectorMeta> PortalQueue = new Queue<SectorMeta>();
-
-    private Queue<SectorMeta> SectorQueue = new Queue<SectorMeta>();
+    private List<List<SectorMeta>> ListOfSectorLists = new List<List<SectorMeta>>();
 
     private List<Vector3> OpaqueVertices = new List<Vector3>();
 
@@ -187,14 +727,15 @@ public class BuildAndRunLevel : MonoBehaviour
     [Serializable]
     public class TopLevelLists
     {
-        public List<SectorMeta> sectors = new List<SectorMeta>();
-        public List<StartPos> positions = new List<StartPos>();
-        public List<LevelLight> colors = new List<LevelLight>();
-        public List<Triangle> opaques = new List<Triangle>();
-        public List<Triangle> collisions = new List<Triangle>();
-        public List<MathematicalPlane> planes = new List<MathematicalPlane>();
-        public List<PolygonMeta> polygons = new List<PolygonMeta>();
-        public List<Edge> edges = new List<Edge>();
+        public NativeList<float3> vertices;
+        public NativeList<float4> textures;
+        public NativeList<int> triangles;
+        public NativeList<int> edges;
+        public NativeList<MathematicalPlane> planes;
+        public NativeList<PolygonMeta> polygons;
+        public NativeList<SectorMeta> sectors;
+        public NativeList<StartPosition> positions;
+        public NativeList<LevelLight> colors;
     }
 
     private Plane TopPlane;
@@ -248,92 +789,20 @@ public class BuildAndRunLevel : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        walltri = new List<int>()
-        {
-            0, 1, 2, 0, 2, 3
-        };
-
-        LevelLists = new TopLevelLists();
-
-        LoadLevel();
-
-        LightColor = new Color[LevelLists.colors.Count];
-
-        combinedpolygons = new PolygonMeta[LevelLists.polygons.Count * 10];
-
-        combinedplanes = new MathematicalPlane[LevelLists.polygons.Count * 10];
-
-        processbool = new bool[128];
-
-        processvertices = new Vector3[128];
-
-        temporaryvertices = new Vector3[128];
-
-        outputvertices = new Vector3[128];
-
-        oldsectors = new SectorMeta[128];
-
-        sectors = new SectorMeta[128];
-
-        uintArgs = new uint[] { 0, 1, 0, 0 };
-
-        CreateMaterial();
-
         int strideTriangle = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Triangle));
-        int stridePolygon = System.Runtime.InteropServices.Marshal.SizeOf(typeof(PolygonMeta));
-        int stridePlane = System.Runtime.InteropServices.Marshal.SizeOf(typeof(MathematicalPlane));
-        int strideVertex = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector3));
-        int strideTexture = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector4));
-        int strideUint = System.Runtime.InteropServices.Marshal.SizeOf(typeof(uint));
-        int scratchSize = (LevelLists.polygons.Count * 10) * 256;
 
-        processVertices = new ComputeBuffer(scratchSize, strideVertex);
-        processTextures = new ComputeBuffer(scratchSize, strideTexture);
-        processBool = new ComputeBuffer(scratchSize, strideUint);
-        temporaryVertices = new ComputeBuffer(scratchSize, strideVertex);
-        temporaryTextures = new ComputeBuffer(scratchSize, strideTexture);
-        planeBuffer = new ComputeBuffer(LevelLists.polygons.Count * 10, stridePlane, ComputeBufferType.Structured);
-        inputPolygonBuffer = new ComputeBuffer(LevelLists.polygons.Count * 10, stridePolygon, ComputeBufferType.Structured);
-        inputTriangleBuffer = new ComputeBuffer(LevelLists.opaques.Count, strideTriangle, ComputeBufferType.Structured);
-        outputTriangleBuffer = new ComputeBuffer(LevelLists.opaques.Count * 10, strideTriangle, ComputeBufferType.Append);
-        argsBuffer = new ComputeBuffer(1, strideUint * 4, ComputeBufferType.IndirectArguments);
+        triBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, (LevelLists.polygons.Length * 32) * 32, strideTriangle);
 
-        inputTriangleBuffer.SetData(LevelLists.opaques);
+        opaquematerial.SetBuffer("outputTriangleBuffer", triBuffer);
 
-        computeShader.SetBuffer(kernel, "processVertices", processVertices);
-        computeShader.SetBuffer(kernel, "processTextures", processTextures);
-        computeShader.SetBuffer(kernel, "processBool", processBool);
-        computeShader.SetBuffer(kernel, "temporaryVertices", temporaryVertices);
-        computeShader.SetBuffer(kernel, "temporaryTextures", temporaryTextures);
-        computeShader.SetBuffer(kernel, "planeBuffer", planeBuffer);
-        computeShader.SetBuffer(kernel, "inputTriangleBuffer", inputTriangleBuffer);
-        computeShader.SetBuffer(kernel, "inputPolygonBuffer", inputPolygonBuffer);
-        computeShader.SetBuffer(kernel, "outputTriangleBuffer", outputTriangleBuffer);
-        computeShader.SetBuffer(kernel, "argsBuffer", argsBuffer);
-
-        opaquematerial.SetBuffer("outputTriangleBuffer", outputTriangleBuffer);
-
-        opaquemesh = new Mesh();
-
-        opaquemesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-
-        transparentmesh = new Mesh();
-
-        transparentmesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-
-        CollisionObjects = new GameObject("Collision Meshes");
-
-        BuildColliders();
-
-        Cursor.lockState = CursorLockMode.Locked;
-
-        Playerstart();
-
-        Player.GetComponent<CharacterController>().enabled = true;
-
-        for (int i = 0; i < LevelLists.sectors.Count; i++)
+        for (int i = 0; i < 2; i++)
         {
-            Physics.IgnoreCollision(Player, CollisionSectors[LevelLists.sectors[i].sectorID], true);
+            ListOfSectorLists.Add(new List<SectorMeta>());
+        }
+
+        for (int i = 0; i < LevelLists.sectors.Length; i++)
+        {
+            Physics.IgnoreCollision(Player, CollisionSectors[LevelLists.sectors[i].sectorId], true);
         }
     }
 
@@ -345,21 +814,17 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             CamPoint = Cam.transform.position;
 
-            sectorscount = 0;
-
             GetSectors(CurrentSector);
 
-            combinedplanescount = 0;
+            OriginalFrustum.Clear();
 
-            ReadFrustumPlanes(Cam, combinedplanes);
+            ReadFrustumPlanes(Cam, OriginalFrustum);
 
-            MaxDepth = 0;
+            OriginalFrustum.RemoveAt(5);
 
-            combinedpolygonscount = 0;
+            OriginalFrustum.RemoveAt(4);
 
-            GetPortals(CurrentSector);
-
-            GetTriangles();
+            GetPolygons(CurrentSector);
 
             Cam.transform.hasChanged = false;
         }
@@ -367,31 +832,188 @@ public class BuildAndRunLevel : MonoBehaviour
 
     void OnDestroy()
     {
-        processVertices?.Release();
-        processTextures?.Release();
-        processBool?.Release();
-        temporaryVertices?.Release();
-        temporaryTextures?.Release();
-        planeBuffer?.Release();
-        inputTriangleBuffer?.Release();
-        inputPolygonBuffer?.Release();
-        outputTriangleBuffer?.Release();
-        argsBuffer?.Release();
+        triBuffer?.Dispose();
+
+        if (LevelLists.sectors.IsCreated)
+        {
+            LevelLists.sectors.Dispose();
+        }
+        if (LevelLists.polygons.IsCreated)
+        {
+            LevelLists.polygons.Dispose();
+        }
+        if (LevelLists.vertices.IsCreated)
+        {
+            LevelLists.vertices.Dispose();
+        }
+        if (LevelLists.textures.IsCreated)
+        {
+            LevelLists.textures.Dispose();
+        }
+        if (LevelLists.triangles.IsCreated)
+        {
+            LevelLists.triangles.Dispose();
+        }
+        if (LevelLists.edges.IsCreated)
+        {
+            LevelLists.edges.Dispose();
+        }
+        if (LevelLists.positions.IsCreated)
+        {
+            LevelLists.positions.Dispose();
+        }
+        if (LevelLists.planes.IsCreated)
+        {
+            LevelLists.planes.Dispose();
+        }
+        if (contains.IsCreated)
+        {
+            contains.Dispose();
+        }
+        if (processbool.IsCreated)
+        {
+            processbool.Dispose();
+        }
+        if (processvertices.IsCreated)
+        {
+            processvertices.Dispose();
+        }
+        if (processtextures.IsCreated)
+        {
+            processtextures.Dispose();
+        }
+        if (temporaryvertices.IsCreated)
+        {
+            temporaryvertices.Dispose();
+        }
+        if (temporarytextures.IsCreated)
+        {
+            temporarytextures.Dispose();
+        }
+        if (outEdges.IsCreated)
+        {
+            outEdges.Dispose();
+        }
+        if (planeA.IsCreated)
+        {
+            planeA.Dispose();
+        }
+        if (planeB.IsCreated)
+        {
+            planeB.Dispose();
+        }
+        if (sideA.IsCreated)
+        {
+            sideA.Dispose();
+        }
+        if (sideB.IsCreated)
+        {
+            sideB.Dispose();
+        }
+        if (outTriangles.IsCreated)
+        {
+            outTriangles.Dispose();
+        }
+        if (OriginalFrustum.IsCreated)
+        {
+            OriginalFrustum.Dispose();
+        }
+        if (oldContains.IsCreated)
+        {
+            oldContains.Dispose();
+        }
+        if (rawTriangles.IsCreated)
+        {
+            rawTriangles.Dispose();
+        }
+        if (rawPortals.IsCreated)
+        {
+            rawPortals.Dispose();
+        }
+        if (processedgevertices.IsCreated)
+        {
+            processedgevertices.Dispose();
+        }
+        if (temporaryedgevertices.IsCreated)
+        {
+            temporaryedgevertices.Dispose();
+        }
+        if (processedgebool.IsCreated)
+        {
+            processedgebool.Dispose();
+        }
+        if (LevelLists.colors.IsCreated)
+        {
+            LevelLists.colors.Dispose();
+        }
     }
 
     void OnRenderObject()
     {
+        triBuffer.SetData(outTriangles.AsArray());
+
         opaquematerial.SetPass(0);
-        Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, argsBuffer);
+        Graphics.DrawProceduralNow(MeshTopology.Triangles, outTriangles.Length * 3);
     }
 
     void Awake()
     {
+        walltri = new List<int>()
+        {
+            0, 1, 2, 0, 2, 3
+        };
+
         Player = GameObject.Find("Player").GetComponent<CharacterController>();
 
-        kernel = computeShader.FindKernel("CSMain");
+        Player.GetComponent<CharacterController>().enabled = true;
+
+        Cursor.lockState = CursorLockMode.Locked;
 
         Cam = Camera.main;
+
+        LevelLists = new TopLevelLists();
+
+        LevelLists.edges = new NativeList<int>(Allocator.Persistent);
+        LevelLists.triangles = new NativeList<int>(Allocator.Persistent);
+        LevelLists.vertices = new NativeList<float3>(Allocator.Persistent);
+        LevelLists.textures = new NativeList<float4>(Allocator.Persistent);
+        LevelLists.sectors = new NativeList<SectorMeta>(Allocator.Persistent);
+        LevelLists.planes = new NativeList<MathematicalPlane>(Allocator.Persistent);
+        LevelLists.polygons = new NativeList<PolygonMeta>(Allocator.Persistent);
+        LevelLists.positions = new NativeList<StartPosition>(Allocator.Persistent);
+        LevelLists.colors = new NativeList<LevelLight>(Allocator.Persistent);
+
+        CollisionObjects = new GameObject("Collision Meshes");
+
+        LoadLevel();
+
+        LightColor = new Color[LevelLists.colors.Length];
+
+        CreateMaterial();
+
+        BuildColliders();
+
+        PlayerStart();
+
+        processbool = new NativeArray<bool>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        processvertices = new NativeArray<float3>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        processtextures = new NativeArray<float4>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        temporaryvertices = new NativeArray<float3>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        temporarytextures = new NativeArray<float4>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        processedgebool = new NativeArray<bool>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        processedgevertices = new NativeArray<float3>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        temporaryedgevertices = new NativeArray<float3>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        outEdges = new NativeArray<float3>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        planeA = new NativeArray<MathematicalPlane>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        planeB = new NativeArray<MathematicalPlane>(LevelLists.polygons.Length * 256, Allocator.Persistent);
+        contains = new NativeList<SectorMeta>(Allocator.Persistent);
+        oldContains = new NativeList<SectorMeta>(Allocator.Persistent);
+        sideA = new NativeList<SectorMeta>(LevelLists.sectors.Length * 32, Allocator.Persistent);
+        sideB = new NativeList<SectorMeta>(LevelLists.sectors.Length * 32, Allocator.Persistent);
+        outTriangles = new NativeList<Triangle>((LevelLists.polygons.Length * 32) * 32, Allocator.Persistent);
+        OriginalFrustum = new NativeList<MathematicalPlane>(6, Allocator.Persistent);
+        rawTriangles = new NativeList<TrianglesMeta>(LevelLists.polygons.Length * 32, Allocator.Persistent);
+        rawPortals = new NativeList<PortalMeta>(LevelLists.polygons.Length * 32, Allocator.Persistent);
     }
 
     void FixedUpdate()
@@ -480,7 +1102,7 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         Shader shader = Resources.Load<Shader>("TriangleTexArray");
 
-        for (int i = 0; i < LevelLists.colors.Count; i++)
+        for (int i = 0; i < LevelLists.colors.Length; i++)
         {
             LightColor[i] = new Color(LevelLists.colors[i].TriangleLight.r, LevelLists.colors[i].TriangleLight.g, LevelLists.colors[i].TriangleLight.b, 1.0f);
         }
@@ -492,22 +1114,22 @@ public class BuildAndRunLevel : MonoBehaviour
         opaquematerial.SetColorArray("_ColorArray", LightColor);
     }
 
-    public void Playerstart()
+    public void PlayerStart()
     {
-        if (LevelLists.positions.Count == 0)
+        if (LevelLists.positions.Length == 0)
         {
             Debug.LogError("No player starts available.");
 
             return;
         }
 
-        int randomIndex = UnityEngine.Random.Range(0, LevelLists.positions.Count);
+        int randomIndex = UnityEngine.Random.Range(0, LevelLists.positions.Length);
 
-        StartPos selectedPosition = LevelLists.positions[randomIndex];
+        StartPosition selectedPosition = LevelLists.positions[randomIndex];
 
-        CurrentSector = LevelLists.sectors[selectedPosition.SectorID];
+        CurrentSector = LevelLists.sectors[selectedPosition.sectorId];
 
-        Player.transform.position = new Vector3(selectedPosition.Position.x, selectedPosition.Position.y + 1.10f, selectedPosition.Position.z);
+        Player.transform.position = new Vector3(selectedPosition.playerStart.x, selectedPosition.playerStart.y + 1.10f, selectedPosition.playerStart.z);
     }
 
     private MathematicalPlane FromVec4(Vector4 aVec)
@@ -521,66 +1143,31 @@ public class BuildAndRunLevel : MonoBehaviour
         };
     }
 
-    public void SetFrustumPlanes(MathematicalPlane[] planes, Matrix4x4 m)
+    public void SetFrustumPlanes(NativeList<MathematicalPlane> planes, Matrix4x4 m)
     {
-        if (planes == null)
-        {
-            return;
-        }
-           
         var r0 = m.GetRow(0);
         var r1 = m.GetRow(1);
         var r2 = m.GetRow(2);
         var r3 = m.GetRow(3);
 
-        planes[combinedplanescount] = FromVec4(r3 - r0); // Right
-        planes[combinedplanescount + 1] = FromVec4(r3 + r0); // Left
-        planes[combinedplanescount + 2] = FromVec4(r3 - r1); // Top
-        planes[combinedplanescount + 3] = FromVec4(r3 + r1); // Bottom
-        planes[combinedplanescount + 4] = FromVec4(r3 - r2); // Far
-        planes[combinedplanescount + 5] = FromVec4(r3 + r2); // Near
-        combinedplanescount += 4;
+        planes.Add(FromVec4(r3 - r0)); // Right
+        planes.Add(FromVec4(r3 + r0)); // Left
+        planes.Add(FromVec4(r3 - r1)); // Top
+        planes.Add(FromVec4(r3 + r1)); // Bottom
+        planes.Add(FromVec4(r3 - r2)); // Far
+        planes.Add(FromVec4(r3 + r2)); // Near
     }
 
-    public void ReadFrustumPlanes(Camera cam, MathematicalPlane[] planes)
+    public void ReadFrustumPlanes(Camera cam, NativeList<MathematicalPlane> planes)
     {
         SetFrustumPlanes(planes, cam.projectionMatrix * cam.worldToCameraMatrix);
     }
 
-    public void SetClippingPlanes(Vector3[] vertices, int portalnumber, int polygonStart, int polygonCount, Vector3 viewPos)
-    {
-        int StartIndex = combinedplanescount;
-
-        int IndexCount = 0;
-
-        for (int i = 0; i < outputverticescount; i += 2)
-        {
-            Vector3 p1 = vertices[i];
-            Vector3 p2 = vertices[i + 1];
-            Vector3 normal = Vector3.Cross(p1 - p2, viewPos - p2);
-            float magnitude = normal.magnitude;
-            Vector3 normalized = normal / magnitude;
-
-            if (magnitude > 0.01f)
-            {
-                combinedplanes[combinedplanescount] = new MathematicalPlane { normal = normalized, distance = -Vector3.Dot(normalized, p1) };
-                combinedplanescount += 1;
-                IndexCount += 1;
-            }
-        }
-
-        NextSector.polygonStartIndex = polygonStart;
-        NextSector.polygonCount = polygonCount;
-
-        NextSector.planeStartIndex = StartIndex;
-        NextSector.planeCount = IndexCount;
-
-        NextSector.sectorID = portalnumber;
-    }
-
     public void BuildColliders()
     {
-        for (int i = 0; i < LevelLists.sectors.Count; i++)
+        float tinyNumber = 1e-6f;
+
+        for (int i = 0; i < LevelLists.sectors.Length; i++)
         {
             OpaqueVertices.Clear();
 
@@ -590,13 +1177,26 @@ public class BuildAndRunLevel : MonoBehaviour
 
             for (int e = LevelLists.sectors[i].polygonStartIndex; e < LevelLists.sectors[i].polygonStartIndex + LevelLists.sectors[i].polygonCount; e++)
             {
-                if (LevelLists.polygons[e].collisionCount != -1)
+                if (LevelLists.polygons[e].collider != -1)
                 {
-                    for (int f = LevelLists.polygons[e].collisionStartIndex; f < LevelLists.polygons[e].collisionStartIndex + LevelLists.polygons[e].collisionCount; f++)
+                    for (int f = LevelLists.polygons[e].triangleStartIndex; f < LevelLists.polygons[e].triangleStartIndex + LevelLists.polygons[e].triangleCount; f += 3)
                     {
-                        OpaqueVertices.Add(LevelLists.collisions[f].v0);
-                        OpaqueVertices.Add(LevelLists.collisions[f].v1);
-                        OpaqueVertices.Add(LevelLists.collisions[f].v2);
+                        Vector3 v0 = LevelLists.vertices[LevelLists.triangles[f]];
+                        Vector3 v1 = LevelLists.vertices[LevelLists.triangles[f + 1]];
+                        Vector3 v2 = LevelLists.vertices[LevelLists.triangles[f + 2]];
+
+                        Vector3 e0 = v1 - v0;
+                        Vector3 e1 = v2 - v1;
+                        Vector3 e2 = v2 - v0;
+
+                        if (e0.sqrMagnitude < tinyNumber || e1.sqrMagnitude < tinyNumber || e2.sqrMagnitude < tinyNumber)
+                        {
+                            continue;
+                        }
+
+                        OpaqueVertices.Add(v0);
+                        OpaqueVertices.Add(v1);
+                        OpaqueVertices.Add(v2);
                         OpaqueTriangles.Add(triangleCount);
                         OpaqueTriangles.Add(triangleCount + 1);
                         OpaqueTriangles.Add(triangleCount + 2);
@@ -662,122 +1262,6 @@ public class BuildAndRunLevel : MonoBehaviour
         return Vector3.Dot(plane.normal, point) + plane.distance;
     }
 
-    public void ClipEdgesWithPlanes(SectorMeta planes, PolygonMeta portal)
-    {
-        outputverticescount = 0;
-
-        int processverticescount = 0;
-        int processboolcount = 0;
-
-        for (int a = portal.lineStartIndex; a < portal.lineStartIndex + portal.lineCount; a++)
-        {
-            Edge line = LevelLists.edges[a];
-            processvertices[processverticescount] = line.start;
-            processvertices[processverticescount + 1] = line.end;
-            processverticescount += 2;
-            processbool[processboolcount] = true;
-            processbool[processboolcount + 1] = true;
-            processboolcount += 2;
-        }
-
-        for (int b = planes.planeStartIndex; b < planes.planeStartIndex + planes.planeCount; b++)
-        {
-            int intersection = 0;
-            int temporaryverticescount = 0;
-
-            Vector3 intersectionPoint1 = Vector3.zero;
-            Vector3 intersectionPoint2 = Vector3.zero;
-
-            for (int c = 0; c < processverticescount; c += 2)
-            {
-                if (processbool[c] == false && processbool[c + 1] == false)
-                {
-                    continue;
-                }
-
-                Vector3 p1 = processvertices[c];
-                Vector3 p2 = processvertices[c + 1];
-
-                float d1 = GetPlaneSignedDistanceToPoint(combinedplanes[b], p1);
-                float d2 = GetPlaneSignedDistanceToPoint(combinedplanes[b], p2);
-
-                bool b0 = d1 >= 0;
-                bool b1 = d2 >= 0;
-
-                if (b0 && b1)
-                {
-                    continue;
-                }
-                else if ((b0 && !b1) || (!b0 && b1))
-                {
-                    Vector3 point1;
-                    Vector3 point2;
-
-                    float t = d1 / (d1 - d2);
-
-                    Vector3 intersectionPoint = Vector3.Lerp(p1, p2, t);
-
-                    if (b0)
-                    {
-                        point1 = p1;
-                        point2 = intersectionPoint;
-                        intersectionPoint1 = intersectionPoint;
-                    }
-                    else
-                    {
-                        point1 = intersectionPoint;
-                        point2 = p2;
-                        intersectionPoint2 = intersectionPoint;
-                    }
-
-                    temporaryvertices[temporaryverticescount] = point1;
-                    temporaryvertices[temporaryverticescount + 1] = point2;
-                    temporaryverticescount += 2;
-
-                    processbool[c] = false;
-                    processbool[c + 1] = false;
-
-                    intersection += 1;
-                }
-                else
-                {
-                    processbool[c] = false;
-                    processbool[c + 1] = false;
-                }
-            }
-
-            if (intersection == 2)
-            {
-                for (int d = 0; d < temporaryverticescount; d += 2)
-                {
-                    processvertices[processverticescount] = temporaryvertices[d];
-                    processvertices[processverticescount + 1] = temporaryvertices[d + 1];
-                    processverticescount += 2;
-                    processbool[processboolcount] = true;
-                    processbool[processboolcount + 1] = true;
-                    processboolcount += 2;
-                }
-
-                processvertices[processverticescount] = intersectionPoint1;
-                processvertices[processverticescount + 1] = intersectionPoint2;
-                processverticescount += 2;
-                processbool[processboolcount] = true;
-                processbool[processboolcount + 1] = true;
-                processboolcount += 2;
-            }
-        }
-
-        for (int e = 0; e < processboolcount; e += 2)
-        {
-            if (processbool[e] == true && processbool[e + 1] == true)
-            {
-                outputvertices[outputverticescount] = processvertices[e];
-                outputvertices[outputverticescount + 1] = processvertices[e + 1];
-                outputverticescount += 2;
-            }
-        }
-    }
-
     public bool CheckRadius(SectorMeta asector, Vector3 campoint)
     {
         for (int i = asector.polygonStartIndex; i < asector.polygonStartIndex + asector.polygonCount; i++)
@@ -804,26 +1288,26 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public bool SectorsContains(int sectorID)
     {
-        for (int i = 0; i < sectorscount; i++)
+        for (int i = 0; i < contains.Length; i++)
         {
-            if (sectors[i].sectorID == sectorID) 
+            if (contains[i].sectorId == sectorID)
             {
                 return true;
-            }    
+            }
         }
         return false;
     }
 
     public bool SectorsDoNotEqual()
     {
-        if (sectorscount != oldsectorscount) 
+        if (contains.Length != oldContains.Length)
         {
             return true;
         }
 
-        for (int i = 0; i < sectorscount; i++)
+        for (int i = 0; i < contains.Length; i++)
         {
-            if (sectors[i].sectorID != oldsectors[i].sectorID)
+            if (contains[i].sectorId != oldContains[i].sectorId)
             {
                 return true;
             }
@@ -833,158 +1317,202 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void GetSectors(SectorMeta ASector)
     {
-        for (int i = 0; i < oldsectorscount; i++)
+        int input = 0;
+        int output = 1;
+
+        contains.Clear();
+
+        ListOfSectorLists[input].Clear();
+        ListOfSectorLists[output].Clear();
+
+        ListOfSectorLists[input].Add(ASector);
+
+        for (int a = 0; a < oldContains.Length; a++)
         {
-            Physics.IgnoreCollision(Player, CollisionSectors[oldsectors[i].sectorID], true);
+            Physics.IgnoreCollision(Player, CollisionSectors[oldContains[a].sectorId], true);
         }
 
-        SectorQueue.Enqueue(ASector);
-
-        while (SectorQueue.Count > 0)
+        for (int b = 0; b < 256; b++)
         {
-            SectorMeta sector = SectorQueue.Dequeue();
-
-            sectors[sectorscount] = sector;
-            sectorscount += 1;
-
-            Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorID], false);
-
-            for (int i = sector.polygonStartIndex; i < sector.polygonStartIndex + sector.polygonCount; i++)
+            if (b % 2 == 0)
             {
-                int connectedsector = LevelLists.polygons[i].connectedSectorID;
-
-                if (connectedsector == -1)
-                {
-                    continue;
-                }
-
-                SectorMeta portalsector = LevelLists.sectors[connectedsector];
-
-                if (SectorsContains(portalsector.sectorID))
-                {
-                    continue;
-                }
-
-                radius = CheckRadius(portalsector, CamPoint);
-
-                if (radius)
-                {
-                    SectorQueue.Enqueue(portalsector);
-                }
+                input = 0;
+                output = 1;
+            }
+            else
+            {
+                input = 1;
+                output = 0;
             }
 
-            check = CheckSector(sector, CamPoint);
+            ListOfSectorLists[output].Clear();
 
-            if (check)
+            if (ListOfSectorLists[input].Count == 0)
             {
-                CurrentSector = sector;
+                break;
+            }
+
+            for (int c = 0; c < ListOfSectorLists[input].Count; c++)
+            {
+                SectorMeta sector = ListOfSectorLists[input][c];
+
+                contains.Add(sector);
+
+                Physics.IgnoreCollision(Player, CollisionSectors[sector.sectorId], false);
+
+                for (int d = sector.polygonStartIndex; d < sector.polygonStartIndex + sector.polygonCount; d++)
+                {
+                    int connectedsector = LevelLists.polygons[d].connectedSectorId;
+
+                    if (connectedsector == -1)
+                    {
+                        continue;
+                    }
+
+                    SectorMeta portalsector = LevelLists.sectors[connectedsector];
+
+                    if (SectorsContains(portalsector.sectorId))
+                    {
+                        continue;
+                    }
+
+                    radius = CheckRadius(portalsector, CamPoint);
+
+                    if (radius)
+                    {
+                        ListOfSectorLists[output].Add(portalsector);
+                    }
+                }
+
+                check = CheckSector(sector, CamPoint);
+
+                if (check)
+                {
+                    CurrentSector = sector;
+                }
             }
         }
 
         if (SectorsDoNotEqual())
         {
-            oldsectorscount = 0;
+            oldContains.Clear();
 
-            for (int i = 0; i < sectorscount; i++)
+            for (int e = 0; e < contains.Length; e++)
             {
-                oldsectors[oldsectorscount] = sectors[i];
-                oldsectorscount += 1;
+                oldContains.Add(contains[e]);
             }
         }
     }
 
-    public void GetTriangles()
+    public void GetPolygons(SectorMeta ASector)
     {
-        inputPolygonBuffer.SetData(combinedpolygons, 0, 0, combinedpolygonscount);
+        sideA.Clear();
+        sideB.Clear();
+        outTriangles.Clear();
 
-        planeBuffer.SetData(combinedplanes, 0, 0, combinedplanescount);
+        planeA[0] = OriginalFrustum[0];
+        planeA[1] = OriginalFrustum[1];
+        planeA[2] = OriginalFrustum[2];
+        planeA[3] = OriginalFrustum[3];
 
-        argsBuffer.SetData(uintArgs);
+        sideA.Add(ASector);
 
-        outputTriangleBuffer.SetCounterValue(0);
+        NativeList<SectorMeta> currentSectors = sideA;
+        NativeList<SectorMeta> nextSectors = sideB;
+        NativeArray<MathematicalPlane> currentFrustums = planeA;
+        NativeArray<MathematicalPlane> nextFrustums = planeB;
 
-        computeShader.Dispatch(kernel, combinedpolygonscount, 1, 1);
-    }
-
-    public void GetPortals(SectorMeta ASector)
-    {
-        PortalQueue.Enqueue(ASector);
-
-        while (PortalQueue.Count > 0)
+        for (int i = 0; i < 256; i++)
         {
-            SectorMeta sector = PortalQueue.Dequeue();
-
-            for (int i = sector.polygonStartIndex; i < sector.polygonStartIndex + sector.polygonCount; i++)
+            if (i % 2 == 0)
             {
-                if (MaxDepth > 4096)
-                {
-                    continue;
-                }
-
-                PolygonMeta polygon = LevelLists.polygons[i];
-
-                planeDistance = GetPlaneSignedDistanceToPoint(LevelLists.planes[polygon.plane], CamPoint);
-
-                if (planeDistance <= 0)
-                {
-                    continue;
-                }
-
-                int connectedsector = polygon.connectedSectorID;
-
-                if (connectedsector == -1)
-                {
-                    polygon.planeStartIndex = sector.planeStartIndex;
-                    polygon.planeCount = sector.planeCount;
-
-                    combinedpolygons[combinedpolygonscount] = polygon;
-                    combinedpolygonscount += 1;
-
-                    continue;
-                }
-
-                int connectedstart = LevelLists.sectors[connectedsector].polygonStartIndex;
-
-                int connectedcount = LevelLists.sectors[connectedsector].polygonCount;
-
-                if (SectorsContains(LevelLists.sectors[connectedsector].sectorID))
-                {
-                    MaxDepth += 1;
-
-                    NextSector.polygonStartIndex = connectedstart;
-                    NextSector.polygonCount = connectedcount;
-
-                    NextSector.planeStartIndex = sector.planeStartIndex;
-                    NextSector.planeCount = sector.planeCount;
-
-                    NextSector.sectorID = connectedsector;
-
-                    PortalQueue.Enqueue(NextSector);
-
-                    continue;
-                }
-
-                ClipEdgesWithPlanes(sector, polygon);
-
-                if (outputverticescount < 6 || outputverticescount % 2 == 1)
-                {
-                    continue;
-                }
-
-                SetClippingPlanes(outputvertices, connectedsector, connectedstart, connectedcount, CamPoint);
-
-                MaxDepth += 1;
-
-                PortalQueue.Enqueue(NextSector);
+                currentSectors = sideA;
+                nextSectors = sideB;
+                currentFrustums = planeA;
+                nextFrustums = planeB;
             }
+            else
+            {
+                currentSectors = sideB;
+                nextSectors = sideA;
+                currentFrustums = planeB;
+                nextFrustums = planeA;
+            }
+
+            if (currentSectors.Length == 0)
+            {
+                break;
+            }
+
+            nextSectors.Clear();
+            rawTriangles.Clear();
+            rawPortals.Clear();
+
+            JobHandle h1 = new SectorsJob
+            {
+                point = CamPoint,
+                planes = LevelLists.planes.AsDeferredJobArray(),
+                polygons = LevelLists.polygons.AsDeferredJobArray(),
+                contains = contains.AsDeferredJobArray(),
+                sectors = LevelLists.sectors.AsDeferredJobArray(),
+                currentSectors = currentSectors.AsDeferredJobArray(),
+                rawPortals = rawPortals.AsParallelWriter(),
+                rawTriangles = rawTriangles.AsParallelWriter()
+            }.Schedule(currentSectors.Length, 32);
+
+            h1.Complete();
+
+            int rawTrianglesCount = rawTriangles.Length;
+
+            if (outTriangles.Capacity < rawTrianglesCount)
+            {
+                outTriangles.Capacity = rawTrianglesCount;
+            }
+
+            JobHandle h2 = new ClipTrianglesJob
+            {
+                rawTriangles = rawTriangles.AsDeferredJobArray(),
+                vertices = LevelLists.vertices.AsDeferredJobArray(),
+                textures = LevelLists.textures.AsDeferredJobArray(),
+                triangles = LevelLists.triangles.AsDeferredJobArray(),
+                processvertices = processvertices,
+                processtextures = processtextures,
+                processbool = processbool,
+                temporaryvertices = temporaryvertices,
+                temporarytextures = temporarytextures,
+                currentFrustums = currentFrustums,
+                finalTriangles = outTriangles.AsParallelWriter()
+            }.Schedule(rawTriangles.Length, 64);
+
+            int rawPortalsCount = rawPortals.Length;
+
+            if (nextSectors.Capacity < rawPortalsCount)
+            {
+                nextSectors.Capacity = rawPortalsCount;
+            }
+
+            JobHandle h3 = new ClipPortalsJob
+            {
+                point = CamPoint,
+                rawPortals = rawPortals.AsDeferredJobArray(),
+                vertices = LevelLists.vertices.AsDeferredJobArray(),
+                originalFrustum = OriginalFrustum.AsDeferredJobArray(),
+                edges = LevelLists.edges.AsDeferredJobArray(),
+                outedges = outEdges,
+                processedgebool = processedgebool,
+                temporaryedgevertices = temporaryedgevertices,
+                processedgevertices = processedgevertices,
+                currentFrustums = currentFrustums,
+                nextFrustums = nextFrustums,
+                nextSectors = nextSectors.AsParallelWriter()
+            }.Schedule(rawPortals.Length, 64);
+
+            JobHandle.CombineDependencies(h2, h3).Complete();
         }
     }
 
     public void BuildGeometry()
     {
-        int opaqueStart = 0;
-        int collisionStart = 0;
-        int edgeStart = 0;
         int planeStart = 0;
         int polygonStart = 0;
 
@@ -1002,33 +1530,25 @@ public class BuildAndRunLevel : MonoBehaviour
                 PolygonMeta meta = new PolygonMeta();
                 Mesh mesh = meshes[b];
 
-                if (Portal[b] != -1)
+                if (mesh.vertices == null || mesh.vertices.Length == 0)
                 {
-                    int edgeCount = 0;
-
-                    for (int c = 0; c < mesh.vertexCount; c++)
-                    {
-                        int d = (c + 1) % mesh.vertexCount;
-
-                        Edge line = new Edge
-                        {
-                            start = mesh.vertices[c],
-                            end = mesh.vertices[d]
-                        };
-
-                        LevelLists.edges.Add(line);
-
-                        edgeCount += 1;
-                    }
-
-                    meta.lineStartIndex = edgeStart;
-                    meta.lineCount = edgeCount;
-                    edgeStart += edgeCount;
+                    continue;
                 }
-                else
+
+                int vertexStart = LevelLists.vertices.Length;
+                int vertexCount = mesh.vertices.Length;
+
+                for (int c = 0; c < mesh.vertices.Length; c++)
                 {
-                    meta.lineStartIndex = -1;
-                    meta.lineCount = -1;
+                    LevelLists.vertices.Add(mesh.vertices[c]);
+                }
+
+                uvVector4.Clear();
+                mesh.GetUVs(0, uvVector4);
+
+                for (int c = 0; c < uvVector4.Count; c++)
+                {
+                    LevelLists.textures.Add(uvVector4[c]);
                 }
 
                 MathematicalPlane plane = new MathematicalPlane
@@ -1038,83 +1558,87 @@ public class BuildAndRunLevel : MonoBehaviour
                 };
 
                 LevelLists.planes.Add(plane);
+
+                if (Render[b] == a && Collision[b] == a && Portal[b] == -1)
+                {
+                    int triangleStart = LevelLists.triangles.Length;
+
+                    meta.triangleStartIndex = triangleStart;
+                    meta.triangleCount = mesh.triangles.Length;
+
+                    for (int d = 0; d < mesh.triangles.Length; d++)
+                    {
+                        LevelLists.triangles.Add(vertexStart + mesh.triangles[d]);
+                    }
+
+                    meta.edgeStartIndex = -1;
+                    meta.edgeCount = -1;
+
+                    meta.opaque = a;
+                    meta.collider = a;
+                }
+                else if (Render[b] == -1 && Collision[b] == a && Portal[b] != -1)
+                {
+                    int triangleStart = LevelLists.triangles.Length;
+
+                    meta.triangleStartIndex = triangleStart;
+                    meta.triangleCount = mesh.triangles.Length;
+
+                    for (int d = 0; d < mesh.triangles.Length; d++)
+                    {
+                        LevelLists.triangles.Add(vertexStart + mesh.triangles[d]);
+                    }
+
+                    int edgeStart = LevelLists.edges.Length;
+
+                    meta.edgeStartIndex = edgeStart;
+                    meta.edgeCount = 8;
+
+                    LevelLists.edges.Add(vertexStart);
+                    LevelLists.edges.Add(vertexStart + 1);
+                    LevelLists.edges.Add(vertexStart + 1);
+                    LevelLists.edges.Add(vertexStart + 2);
+                    LevelLists.edges.Add(vertexStart + 2);
+                    LevelLists.edges.Add(vertexStart + 3);
+                    LevelLists.edges.Add(vertexStart + 3);
+                    LevelLists.edges.Add(vertexStart);
+
+                    meta.opaque = -1;
+                    meta.collider = a;
+                }
+                else if (Render[b] == -1 && Collision[b] == -1 && Portal[b] != -1)
+                {
+                    int edgeStart = LevelLists.edges.Length;
+
+                    meta.edgeStartIndex = edgeStart;
+                    meta.edgeCount = 8;
+
+                    LevelLists.edges.Add(vertexStart);
+                    LevelLists.edges.Add(vertexStart + 1);
+                    LevelLists.edges.Add(vertexStart + 1);
+                    LevelLists.edges.Add(vertexStart + 2);
+                    LevelLists.edges.Add(vertexStart + 2);
+                    LevelLists.edges.Add(vertexStart + 3);
+                    LevelLists.edges.Add(vertexStart + 3);
+                    LevelLists.edges.Add(vertexStart);
+
+                    meta.opaque = -1;
+                    meta.collider = -1;
+                }
+
+                meta.sectorId = a;
+                meta.connectedSectorId = Portal[b];
+
                 meta.plane = planeStart;
-                planeStart += 1;
-
-                if (Render[b] == a)
-                {
-                    int count = 0;
-                    uvVector4.Clear();
-                    mesh.GetUVs(0, uvVector4);
-
-                    for (int c = 0; c < mesh.triangles.Length; c += 3)
-                    {
-                        Triangle t = new Triangle
-                        {
-                            v0 = mesh.vertices[mesh.triangles[c]],
-                            v1 = mesh.vertices[mesh.triangles[c + 1]],
-                            v2 = mesh.vertices[mesh.triangles[c + 2]],
-                            uv0 = uvVector4[mesh.triangles[c]],
-                            uv1 = uvVector4[mesh.triangles[c + 1]],
-                            uv2 = uvVector4[mesh.triangles[c + 2]],
-                        };
-
-                        LevelLists.opaques.Add(t);
-                        count += 1;
-                    }
-
-                    meta.opaqueStartIndex = opaqueStart;
-                    meta.opaqueCount = count;
-                    opaqueStart += count;
-                }
-                else
-                {
-                    meta.opaqueStartIndex = -1;
-                    meta.opaqueCount = -1;
-                }
-
-                if (Collision[b] == a)
-                {
-                    int count = 0;
-
-                    for (int c = 0; c < mesh.triangles.Length; c += 3)
-                    {
-                        Triangle t = new Triangle
-                        {
-                            v0 = mesh.vertices[mesh.triangles[c]],
-                            v1 = mesh.vertices[mesh.triangles[c + 1]],
-                            v2 = mesh.vertices[mesh.triangles[c + 2]],
-                            uv0 = Vector4.zero,
-                            uv1 = Vector4.zero,
-                            uv2 = Vector4.zero,
-                        };
-
-                        LevelLists.collisions.Add(t);
-                        count += 1;
-                    }
-
-                    meta.collisionStartIndex = collisionStart;
-                    meta.collisionCount = count;
-                    collisionStart += count;
-                }
-                else
-                {
-                    meta.collisionStartIndex = -1;
-                    meta.collisionCount = -1;
-                }
-
-                meta.sectorID = a;
-                meta.connectedSectorID = Portal[b];
-                meta.planeStartIndex = -1;
-                meta.planeCount = -1;
 
                 LevelLists.polygons.Add(meta);
                 polygonCount += 1;
+                planeStart += 1;
             }
 
             SectorMeta sectorMeta = new SectorMeta
             {
-                sectorID = a,
+                sectorId = a,
                 polygonStartIndex = polygonStart,
                 polygonCount = polygonCount,
                 planeStartIndex = 0,
@@ -1122,6 +1646,7 @@ public class BuildAndRunLevel : MonoBehaviour
             };
 
             LevelLists.sectors.Add(sectorMeta);
+
             polygonStart += polygonCount;
         }
 
@@ -1148,13 +1673,14 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             if (level.Objects[i].Type == ObjectType.Player)
             {
-                StartPos Start = new StartPos();
+                StartPosition start = new StartPosition
+                {
+                    playerStart = new Vector3((float)level.Objects[i].X / 1024 * Scale, (float)level.Polygons[level.Objects[i].PolygonIndex].FloorHeight / 1024 * Scale, (float)level.Objects[i].Y / 1024 * Scale * -1),
 
-                Start.Position = new Vector3((float)level.Objects[i].X / 1024 * Scale, (float)level.Polygons[level.Objects[i].PolygonIndex].FloorHeight / 1024 * Scale, (float)level.Objects[i].Y / 1024 * Scale * -1);
+                    sectorId = level.Objects[i].PolygonIndex
+                };
 
-                Start.SectorID = level.Objects[i].PolygonIndex;
-
-                LevelLists.positions.Add(Start);
+                LevelLists.positions.Add(start);
             }
         }
     }
