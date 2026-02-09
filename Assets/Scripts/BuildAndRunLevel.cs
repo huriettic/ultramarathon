@@ -1129,7 +1129,11 @@ public class BuildAndRunLevel : MonoBehaviour
 
         CurrentSector = LevelLists.sectors[selectedPosition.sectorId];
 
-        Player.transform.position = new Vector3(selectedPosition.playerStart.x, selectedPosition.playerStart.y + 1.10f, selectedPosition.playerStart.z);
+        Player.enabled = false;
+
+        Player.transform.SetPositionAndRotation(new Vector3(selectedPosition.playerStart.x + 0.01f, selectedPosition.playerStart.y + 1.10f, selectedPosition.playerStart.z + 0.01f), Quaternion.identity);
+
+        Player.enabled = true;
     }
 
     private MathematicalPlane FromVec4(Vector4 aVec)
