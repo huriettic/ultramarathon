@@ -1540,7 +1540,6 @@ public class BuildAndRunLevel : MonoBehaviour
                 }
 
                 int vertexStart = LevelLists.vertices.Length;
-                int vertexCount = mesh.vertices.Length;
 
                 for (int c = 0; c < mesh.vertices.Length; c++)
                 {
@@ -1563,71 +1562,72 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 LevelLists.planes.Add(plane);
 
-                if (Render[b] == a && Collision[b] == a && Portal[b] == -1)
-                {
-                    int triangleStart = LevelLists.triangles.Length;
+                meta.triangleStartIndex = -1;
+                meta.triangleCount = -1;
+                meta.edgeStartIndex = -1;
+                meta.edgeCount = -1;
+                meta.opaque = -1;
+                meta.collider = -1;
 
-                    meta.triangleStartIndex = triangleStart;
+                bool needsTriangles = false;
+                    
+                if (Render[b] != -1 || Collision[b] != -1)
+                {
+                    needsTriangles = true;
+                }
+
+                if (needsTriangles && mesh.triangles != null && mesh.triangles.Length > 0)
+                {
+                    int triStart = LevelLists.triangles.Length;
+
+                    meta.triangleStartIndex = triStart;
                     meta.triangleCount = mesh.triangles.Length;
 
-                    for (int d = 0; d < mesh.triangles.Length; d++)
+                    for (int i = 0; i < mesh.triangles.Length; i++)
                     {
-                        LevelLists.triangles.Add(vertexStart + mesh.triangles[d]);
-                    }
+                        LevelLists.triangles.Add(vertexStart + mesh.triangles[i]);
+                    }   
+                }
 
-                    meta.edgeStartIndex = -1;
-                    meta.edgeCount = -1;
+                bool isPortal = false;
+                    
+                if (Portal[b] != -1)
+                {
+                    isPortal = true;
+                }
 
+                if (isPortal)
+                {
+                    int edgeStart = LevelLists.edges.Length;
+
+                    meta.edgeStartIndex = edgeStart;
+                    meta.edgeCount = 8;
+
+                    LevelLists.edges.Add(vertexStart);
+                    LevelLists.edges.Add(vertexStart + 1);
+
+                    LevelLists.edges.Add(vertexStart + 1);
+                    LevelLists.edges.Add(vertexStart + 2);
+
+                    LevelLists.edges.Add(vertexStart + 2);
+                    LevelLists.edges.Add(vertexStart + 3);
+
+                    LevelLists.edges.Add(vertexStart + 3);
+                    LevelLists.edges.Add(vertexStart);
+                }
+
+                if (Render[b] != -1 && Collision[b] != -1 && !isPortal)
+                {
                     meta.opaque = a;
                     meta.collider = a;
                 }
-                else if (Render[b] == -1 && Collision[b] == a && Portal[b] != -1)
+                else if (Render[b] == -1 && Collision[b] != -1 && !isPortal)
                 {
-                    int triangleStart = LevelLists.triangles.Length;
-
-                    meta.triangleStartIndex = triangleStart;
-                    meta.triangleCount = mesh.triangles.Length;
-
-                    for (int d = 0; d < mesh.triangles.Length; d++)
-                    {
-                        LevelLists.triangles.Add(vertexStart + mesh.triangles[d]);
-                    }
-
-                    int edgeStart = LevelLists.edges.Length;
-
-                    meta.edgeStartIndex = edgeStart;
-                    meta.edgeCount = 8;
-
-                    LevelLists.edges.Add(vertexStart);
-                    LevelLists.edges.Add(vertexStart + 1);
-                    LevelLists.edges.Add(vertexStart + 1);
-                    LevelLists.edges.Add(vertexStart + 2);
-                    LevelLists.edges.Add(vertexStart + 2);
-                    LevelLists.edges.Add(vertexStart + 3);
-                    LevelLists.edges.Add(vertexStart + 3);
-                    LevelLists.edges.Add(vertexStart);
-
-                    meta.opaque = -1;
                     meta.collider = a;
                 }
-                else if (Render[b] == -1 && Collision[b] == -1 && Portal[b] != -1)
+                else if (Collision[b] != -1 && isPortal)
                 {
-                    int edgeStart = LevelLists.edges.Length;
-
-                    meta.edgeStartIndex = edgeStart;
-                    meta.edgeCount = 8;
-
-                    LevelLists.edges.Add(vertexStart);
-                    LevelLists.edges.Add(vertexStart + 1);
-                    LevelLists.edges.Add(vertexStart + 1);
-                    LevelLists.edges.Add(vertexStart + 2);
-                    LevelLists.edges.Add(vertexStart + 2);
-                    LevelLists.edges.Add(vertexStart + 3);
-                    LevelLists.edges.Add(vertexStart + 3);
-                    LevelLists.edges.Add(vertexStart);
-
-                    meta.opaque = -1;
-                    meta.collider = -1;
+                    meta.collider = a;
                 }
 
                 meta.sectorId = a;
