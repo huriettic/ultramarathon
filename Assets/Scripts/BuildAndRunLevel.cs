@@ -31,19 +31,20 @@ public struct LevelLight
     public Color TriangleLight;
 };
 
+[Serializable]
 public struct PolygonMeta
 {
+    public int renderStartIndex;
+    public int renderCount;
+
+    public int collideStartIndex;
+    public int collideCount;
+
     public int edgeStartIndex;
     public int edgeCount;
 
-    public int triangleStartIndex;
-    public int triangleCount;
-
     public int connectedSectorId;
     public int sectorId;
-
-    public int collider;
-    public int opaque;
 
     public int plane;
 };
@@ -115,7 +116,7 @@ public struct SectorsJob : IJobParallelFor
                 continue;
             }
 
-            int render = polygon.opaque;
+            int render = polygon.renderCount;
 
             int connectedsector = polygon.connectedSectorId;
 
@@ -123,16 +124,14 @@ public struct SectorsJob : IJobParallelFor
             {
                 rawTriangles.AddNoResize(new TrianglesMeta
                 {
-                    triangleStartIndex = polygon.triangleStartIndex,
-                    triangleCount = polygon.triangleCount,
+                    triangleStartIndex = polygon.renderStartIndex,
+                    triangleCount = polygon.renderCount,
 
                     planeStartIndex = sector.planeStartIndex,
                     planeCount = sector.planeCount,
 
                     sectorId = polygon.sectorId
                 });
-
-                continue;
             }
 
             if (connectedsector != -1)
@@ -178,7 +177,7 @@ public struct ClipTrianglesJob : IJobParallelFor
     [ReadOnly] public NativeArray<MathematicalPlane> currentFrustums;
     [ReadOnly] public NativeArray<float3> vertices;
     [ReadOnly] public NativeArray<float4> textures;
-    [ReadOnly] public NativeArray<int> triangles;
+    [ReadOnly] public NativeArray<int> render;
 
     [NativeDisableParallelForRestriction] public NativeArray<float3> processvertices;
     [NativeDisableParallelForRestriction] public NativeArray<float4> processtextures;
@@ -208,13 +207,13 @@ public struct ClipTrianglesJob : IJobParallelFor
             int processtexturescount = 0;
             int processboolcount = 0;
 
-            processvertices[baseIndex + processverticescount] = vertices[triangles[a]];
-            processvertices[baseIndex + processverticescount + 1] = vertices[triangles[a + 1]];
-            processvertices[baseIndex + processverticescount + 2] = vertices[triangles[a + 2]];
+            processvertices[baseIndex + processverticescount] = vertices[render[a]];
+            processvertices[baseIndex + processverticescount + 1] = vertices[render[a + 1]];
+            processvertices[baseIndex + processverticescount + 2] = vertices[render[a + 2]];
             processverticescount += 3;
-            processtextures[baseIndex + processtexturescount] = textures[triangles[a]];
-            processtextures[baseIndex + processtexturescount + 1] = textures[triangles[a + 1]];
-            processtextures[baseIndex + processtexturescount + 2] = textures[triangles[a + 2]];
+            processtextures[baseIndex + processtexturescount] = textures[render[a]];
+            processtextures[baseIndex + processtexturescount + 1] = textures[render[a + 1]];
+            processtextures[baseIndex + processtexturescount + 2] = textures[render[a + 2]];
             processtexturescount += 3;
             processbool[baseIndex + processboolcount] = true;
             processbool[baseIndex + processboolcount + 1] = true;
@@ -729,7 +728,8 @@ public class BuildAndRunLevel : MonoBehaviour
     {
         public NativeList<float3> vertices;
         public NativeList<float4> textures;
-        public NativeList<int> triangles;
+        public NativeList<int> collide;
+        public NativeList<int> render;
         public NativeList<int> edges;
         public NativeList<MathematicalPlane> planes;
         public NativeList<PolygonMeta> polygons;
@@ -738,31 +738,19 @@ public class BuildAndRunLevel : MonoBehaviour
         public NativeList<LevelLight> colors;
     }
 
-    private Plane TopPlane;
+    private MathematicalPlane TopPlane1;
 
-    private Plane LeftPlane;
+    private MathematicalPlane LeftPlane1;
 
-    private List<int> walltri;
+    private MathematicalPlane TopPlane2;
 
-    private List<int> MeshTexture = new List<int>();
+    private MathematicalPlane LeftPlane2;
 
-    private List<int> MeshTextureCollection = new List<int>();
-
-    private List<Mesh> meshes = new List<Mesh>();
-
-    private List<Vector3> CW = new List<Vector3>();
-
-    private List<Vector2> CWUV = new List<Vector2>();
-
-    private List<Vector2> CWUVOffset = new List<Vector2>();
-
-    private List<Vector4> CWUVOffsetZ = new List<Vector4>();
-
-    private List<Vector2> ceilinguvs = new List<Vector2>();
+    private List<Vector4> ceilinguvs = new List<Vector4>();
 
     private List<Vector4> ceilinguvsz = new List<Vector4>();
 
-    private List<Vector2> flooruvs = new List<Vector2>();
+    private List<Vector4> flooruvs = new List<Vector4>();
 
     private List<Vector4> flooruvsz = new List<Vector4>();
 
@@ -773,18 +761,6 @@ public class BuildAndRunLevel : MonoBehaviour
     private List<Vector3> floorverts = new List<Vector3>();
 
     private List<int> floortri = new List<int>();
-
-    private List<int> Plane = new List<int>();
-
-    private List<int> Portal = new List<int>();
-
-    private List<int> Render = new List<int>();
-
-    private List<int> Collision = new List<int>();
-
-    private List<int> Transparent = new List<int>();
-
-    private List<Vector4> uvVector4 = new List<Vector4>();
 
     // Start is called before the first frame update
     void Start()
@@ -850,9 +826,13 @@ public class BuildAndRunLevel : MonoBehaviour
         {
             LevelLists.textures.Dispose();
         }
-        if (LevelLists.triangles.IsCreated)
+        if (LevelLists.render.IsCreated)
         {
-            LevelLists.triangles.Dispose();
+            LevelLists.render.Dispose();
+        }
+        if (LevelLists.collide.IsCreated)
+        {
+            LevelLists.collide.Dispose();
         }
         if (LevelLists.edges.IsCreated)
         {
@@ -958,11 +938,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
     void Awake()
     {
-        walltri = new List<int>()
-        {
-            0, 1, 2, 0, 2, 3
-        };
-
         Player = GameObject.Find("Player").GetComponent<CharacterController>();
 
         Player.GetComponent<CharacterController>().enabled = true;
@@ -974,7 +949,8 @@ public class BuildAndRunLevel : MonoBehaviour
         LevelLists = new TopLevelLists();
 
         LevelLists.edges = new NativeList<int>(Allocator.Persistent);
-        LevelLists.triangles = new NativeList<int>(Allocator.Persistent);
+        LevelLists.collide = new NativeList<int>(Allocator.Persistent);
+        LevelLists.render = new NativeList<int>(Allocator.Persistent);
         LevelLists.vertices = new NativeList<float3>(Allocator.Persistent);
         LevelLists.textures = new NativeList<float4>(Allocator.Persistent);
         LevelLists.sectors = new NativeList<SectorMeta>(Allocator.Persistent);
@@ -1078,8 +1054,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
             BuildLights();
 
-            BuildGeometry();
-
             if (SaveTheLevel)
             {
                 SaveLevel();
@@ -1181,13 +1155,13 @@ public class BuildAndRunLevel : MonoBehaviour
 
             for (int e = LevelLists.sectors[i].polygonStartIndex; e < LevelLists.sectors[i].polygonStartIndex + LevelLists.sectors[i].polygonCount; e++)
             {
-                if (LevelLists.polygons[e].collider != -1)
+                if (LevelLists.polygons[e].collideCount != -1)
                 {
-                    for (int f = LevelLists.polygons[e].triangleStartIndex; f < LevelLists.polygons[e].triangleStartIndex + LevelLists.polygons[e].triangleCount; f += 3)
+                    for (int f = LevelLists.polygons[e].collideStartIndex; f < LevelLists.polygons[e].collideStartIndex + LevelLists.polygons[e].collideCount; f += 3)
                     {
-                        Vector3 v0 = LevelLists.vertices[LevelLists.triangles[f]];
-                        Vector3 v1 = LevelLists.vertices[LevelLists.triangles[f + 1]];
-                        Vector3 v2 = LevelLists.vertices[LevelLists.triangles[f + 2]];
+                        Vector3 v0 = LevelLists.vertices[LevelLists.collide[f]];
+                        Vector3 v1 = LevelLists.vertices[LevelLists.collide[f + 1]];
+                        Vector3 v2 = LevelLists.vertices[LevelLists.collide[f + 2]];
 
                         Vector3 e0 = v1 - v0;
                         Vector3 e1 = v2 - v1;
@@ -1466,19 +1440,12 @@ public class BuildAndRunLevel : MonoBehaviour
 
             h1.Complete();
 
-            int rawTrianglesCount = rawTriangles.Length;
-
-            if (outTriangles.Capacity < rawTrianglesCount)
-            {
-                outTriangles.Capacity = rawTrianglesCount;
-            }
-
             JobHandle h2 = new ClipTrianglesJob
             {
                 rawTriangles = rawTriangles.AsDeferredJobArray(),
                 vertices = LevelLists.vertices.AsDeferredJobArray(),
                 textures = LevelLists.textures.AsDeferredJobArray(),
-                triangles = LevelLists.triangles.AsDeferredJobArray(),
+                render = LevelLists.render.AsDeferredJobArray(),
                 processvertices = processvertices,
                 processtextures = processtextures,
                 processbool = processbool,
@@ -1487,13 +1454,6 @@ public class BuildAndRunLevel : MonoBehaviour
                 currentFrustums = currentFrustums,
                 finalTriangles = outTriangles.AsParallelWriter()
             }.Schedule(rawTriangles.Length, 64);
-
-            int rawPortalsCount = rawPortals.Length;
-
-            if (nextSectors.Capacity < rawPortalsCount)
-            {
-                nextSectors.Capacity = rawPortalsCount;
-            }
 
             JobHandle h3 = new ClipPortalsJob
             {
@@ -1513,148 +1473,6 @@ public class BuildAndRunLevel : MonoBehaviour
 
             JobHandle.CombineDependencies(h2, h3).Complete();
         }
-    }
-
-    public void BuildGeometry()
-    {
-        int planeStart = 0;
-        int polygonStart = 0;
-
-        for (int a = 0; a < level.Polygons.Count; a++)
-        {
-            int polygonCount = 0;
-
-            for (int b = 0; b < Plane.Count; b++)
-            {
-                if (Plane[b] != a)
-                {
-                    continue;
-                }
-
-                PolygonMeta meta = new PolygonMeta();
-                Mesh mesh = meshes[b];
-
-                if (mesh.vertices == null || mesh.vertices.Length == 0)
-                {
-                    continue;
-                }
-
-                int vertexStart = LevelLists.vertices.Length;
-
-                for (int c = 0; c < mesh.vertices.Length; c++)
-                {
-                    LevelLists.vertices.Add(mesh.vertices[c]);
-                }
-
-                uvVector4.Clear();
-                mesh.GetUVs(0, uvVector4);
-
-                for (int c = 0; c < uvVector4.Count; c++)
-                {
-                    LevelLists.textures.Add(uvVector4[c]);
-                }
-
-                MathematicalPlane plane = new MathematicalPlane
-                {
-                    normal = mesh.normals[0],
-                    distance = -Vector3.Dot(mesh.normals[0], mesh.vertices[0])
-                };
-
-                LevelLists.planes.Add(plane);
-
-                meta.triangleStartIndex = -1;
-                meta.triangleCount = -1;
-                meta.edgeStartIndex = -1;
-                meta.edgeCount = -1;
-                meta.opaque = -1;
-                meta.collider = -1;
-
-                bool needsTriangles = false;
-                    
-                if (Render[b] != -1 || Collision[b] != -1)
-                {
-                    needsTriangles = true;
-                }
-
-                if (needsTriangles && mesh.triangles != null && mesh.triangles.Length > 0)
-                {
-                    int triStart = LevelLists.triangles.Length;
-
-                    meta.triangleStartIndex = triStart;
-                    meta.triangleCount = mesh.triangles.Length;
-
-                    for (int i = 0; i < mesh.triangles.Length; i++)
-                    {
-                        LevelLists.triangles.Add(vertexStart + mesh.triangles[i]);
-                    }   
-                }
-
-                bool isPortal = false;
-                    
-                if (Portal[b] != -1)
-                {
-                    isPortal = true;
-                }
-
-                if (isPortal)
-                {
-                    int edgeStart = LevelLists.edges.Length;
-
-                    meta.edgeStartIndex = edgeStart;
-                    meta.edgeCount = 8;
-
-                    LevelLists.edges.Add(vertexStart);
-                    LevelLists.edges.Add(vertexStart + 1);
-
-                    LevelLists.edges.Add(vertexStart + 1);
-                    LevelLists.edges.Add(vertexStart + 2);
-
-                    LevelLists.edges.Add(vertexStart + 2);
-                    LevelLists.edges.Add(vertexStart + 3);
-
-                    LevelLists.edges.Add(vertexStart + 3);
-                    LevelLists.edges.Add(vertexStart);
-                }
-
-                if (Render[b] != -1 && Collision[b] != -1 && !isPortal)
-                {
-                    meta.opaque = a;
-                    meta.collider = a;
-                }
-                else if (Render[b] == -1 && Collision[b] != -1 && !isPortal)
-                {
-                    meta.collider = a;
-                }
-                else if (Collision[b] != -1 && isPortal)
-                {
-                    meta.collider = a;
-                }
-
-                meta.sectorId = a;
-                meta.connectedSectorId = Portal[b];
-
-                meta.plane = planeStart;
-
-                LevelLists.polygons.Add(meta);
-                polygonCount += 1;
-                planeStart += 1;
-            }
-
-            SectorMeta sectorMeta = new SectorMeta
-            {
-                sectorId = a,
-                polygonStartIndex = polygonStart,
-                polygonCount = polygonCount,
-                planeStartIndex = 0,
-                planeCount = 4
-            };
-
-            LevelLists.sectors.Add(sectorMeta);
-
-            polygonStart += polygonCount;
-        }
-
-        Debug.Log("Level built successfully!");
     }
 
     public void BuildLights()
@@ -1691,14 +1509,29 @@ public class BuildAndRunLevel : MonoBehaviour
 
     public void BuildTheLists()
     {
+        int polygonStart = 0;
+
         for (int i = 0; i < level.Polygons.Count; ++i)
         {
+            int polygonCount = 0;
+
             var polygon = level.Polygons[i];
+
+            var floorTexture = polygon.FloorTexture.Collection;
+
+            var ceilingTexture = polygon.CeilingTexture.Collection;
+
+            var floorBit = polygon.FloorTexture.Bitmap;
+
+            var ceilingBit = polygon.CeilingTexture.Bitmap;
+
+            var floorLight = polygon.FloorLight;
+
+            var ceilingLight = polygon.CeilingLight;
 
             for (int e = 0; e < polygon.VertexCount; e++)
             {
                 int lineIndex = polygon.LineIndexes[e];
-
                 var line = level.Lines[lineIndex];
 
                 int vA;
@@ -1729,613 +1562,865 @@ public class BuildAndRunLevel : MonoBehaviour
                 }
 
                 double X1 = (float)level.Endpoints[vA].X / 1024 * Scale;
-                double Z1 = (float)level.Endpoints[vA].Y / 1024 * Scale * -1;
+                double Z1 = (float)-level.Endpoints[vA].Y / 1024 * Scale;
 
                 double X0 = (float)level.Endpoints[vB].X / 1024 * Scale;
-                double Z0 = (float)level.Endpoints[vB].Y / 1024 * Scale * -1;
+                double Z0 = (float)-level.Endpoints[vB].Y / 1024 * Scale;
 
-                if (ownerB == -1)
+                double V0 = (float)polygon.CeilingHeight / 1024 * Scale;
+                double V1 = (float)polygon.FloorHeight / 1024 * Scale;
+
+                double L0 = (float)line.LowestAdjacentCeiling / 1024 * Scale;
+                double L1 = (float)line.HighestAdjacentFloor / 1024 * Scale;
+
+                var renderStart = LevelLists.render.Length;
+
+                var collideStart = LevelLists.collide.Length;
+
+                var edgesStart = LevelLists.edges.Length;
+
+                var vertexIndex = LevelLists.vertices.Length;
+
+                if (sideIndex != -1)
                 {
-                    double V0 = (float)polygon.CeilingHeight / 1024 * Scale;
-                    double V1 = (float)polygon.FloorHeight / 1024 * Scale;
-                    
-                    CW.Clear();
-                    CWUV.Clear();
-                    CWUVOffset.Clear();
-                    CWUVOffsetZ.Clear();
+                    var type = level.Sides[sideIndex].Type;
 
-                    GetVerts(X0, X1, V1, V0, Z0, Z1);
-
-                    if (sideIndex != -1)
+                    if (ownerB == -1)
                     {
-                        MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
-
-                        if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
-                            level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
+                        if (type == SideType.Full)
                         {
-                            Render.Add(-1);
+                            var primary = level.Sides[sideIndex].Primary.Texture.Collection;
 
-                            MeshTexture.Add(-1);
+                            var primaryX = (float)level.Sides[sideIndex].Primary.X / 1024;
 
-                            MeshTextureCollection.Add(-1);
-                        }
-                        else
-                        {
-                            Render.Add(ownerA);
+                            var primaryY = (float)-level.Sides[sideIndex].Primary.Y / 1024;
 
-                            MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
+                            var primaryBit = level.Sides[sideIndex].Primary.Texture.Bitmap;
 
-                            MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
+                            var primaryLight = level.Sides[sideIndex].PrimaryLightsourceIndex;
+
+                            var textureCount = 0;
+
+                            if (primary == 17)
+                            {
+                                textureCount = 0;
+                            }
+                            if (primary == 18)
+                            {
+                                textureCount = 30;
+                            }
+                            if (primary == 19)
+                            {
+                                textureCount = 60;
+                            }
+                            if (primary == 20)
+                            {
+                                textureCount = 90;
+                            }
+                            if (primary == 21)
+                            {
+                                textureCount = 125;
+                            }
+
+                            LevelLists.vertices.Add(new float3((float)X1, (float)V1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)V0, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)V0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)V1, (float)Z0));
+
+                            float3 leftPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 2] - LevelLists.vertices[vertexIndex + 1]);
+                            float leftPlaneDistance1 = -math.dot(leftPlaneNormal1, LevelLists.vertices[vertexIndex + 1]);
+
+                            float3 topPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 1] - LevelLists.vertices[vertexIndex]);
+                            float topPlaneDistance1 = -math.dot(topPlaneNormal1, LevelLists.vertices[vertexIndex + 1]);
+
+                            LeftPlane1 = new MathematicalPlane { normal = leftPlaneNormal1, distance = leftPlaneDistance1 };
+                            TopPlane1 = new MathematicalPlane { normal = topPlaneNormal1, distance = topPlaneDistance1 };
+
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 2]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 2]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 3]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 3]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+
+                            PolygonMeta sm = new PolygonMeta();
+
+                            sm.renderStartIndex = -1;
+                            sm.renderCount = -1;
+
+                            sm.collideStartIndex = -1;
+                            sm.collideCount = -1;
+
+                            if (V0 > V1)
+                            {
+                                if (primary == 17 || primary == 18 || primary == 19 || primary == 20 || primary == 21)
+                                {
+                                    LevelLists.render.Add(vertexIndex);
+                                    LevelLists.render.Add(vertexIndex + 1);
+                                    LevelLists.render.Add(vertexIndex + 2);
+                                    LevelLists.render.Add(vertexIndex);
+                                    LevelLists.render.Add(vertexIndex + 2);
+                                    LevelLists.render.Add(vertexIndex + 3);
+
+                                    sm.renderStartIndex = renderStart;
+                                    sm.renderCount = 6;
+                                }
+
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex + 3);
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 6;
+                            }
+
+                            sm.edgeStartIndex = -1;
+                            sm.edgeCount = -1;
+
+                            sm.connectedSectorId = -1;
+                            sm.sectorId = ownerA;
+
+                            sm.plane = LevelLists.planes.Length;
+
+                            LevelLists.polygons.Add(sm);
+
+                            float3 v0 = LevelLists.vertices[vertexIndex];
+                            float3 v1 = LevelLists.vertices[vertexIndex + 1];
+                            float3 v2 = LevelLists.vertices[vertexIndex + 2];
+
+                            float3 n = math.normalize(math.cross(v1 - v0, v2 - v0));
+
+                            MathematicalPlane plane = new MathematicalPlane
+                            {
+                                normal = n,
+                                distance = -math.dot(n, v0)
+                            };
+
+                            LevelLists.planes.Add(plane);
+
+                            polygonCount += 1;
                         }
                     }
                     else
                     {
-                        Render.Add(-1);
-
-                        MeshTexture.Add(-1);
-
-                        MeshTextureCollection.Add(-1);
-                    }
-
-                    Plane.Add(ownerA);
-
-                    Portal.Add(-1);
-
-                    Collision.Add(ownerA);
-
-                    Transparent.Add(-1);
-
-                    Mesh mesh = new Mesh();
-
-                    mesh.SetVertices(CW);
-
-                    if (sideIndex == -1)
-                    {
-                        mesh.SetUVs(0, CWUV);
-                    }
-                    else
-                    {
-                        if (level.Sides[sideIndex].Primary.Texture.IsEmpty())
+                        if (type == SideType.High)
                         {
-                            mesh.SetUVs(0, CWUV);
-                        }
-                        else
-                        {
-                            mesh.SetUVs(0, CWUVOffsetZ);
-                        }
-                    }
-
-                    mesh.SetTriangles(walltri, 0);
-                    mesh.RecalculateNormals();
-
-                    meshes.Add(mesh);
-                }
-                else
-                {
-                    if (polygon.CeilingHeight > line.LowestAdjacentCeiling)
-                    {
-                        if (polygon.FloorHeight < line.LowestAdjacentCeiling)
-                        {
-                            double YC0 = (float)polygon.CeilingHeight / 1024 * Scale;
-                            double YC1 = (float)line.LowestAdjacentCeiling / 1024 * Scale;
-
-                            CW.Clear();
-                            CWUV.Clear();
-                            CWUVOffset.Clear();
-                            CWUVOffsetZ.Clear();
-
-                            GetVerts(X0, X1, YC1, YC0, Z0, Z1);
-
-                            if (sideIndex != -1)
+                            if (polygon.FloorHeight > line.LowestAdjacentCeiling)
                             {
-                                MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
-
-                                if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
-                                    level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
-                                {
-                                    Render.Add(-1);
-
-                                    MeshTexture.Add(-1);
-
-                                    MeshTextureCollection.Add(-1);
-                                }
-                                else
-                                {
-                                    Render.Add(ownerA);
-
-                                    MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
-
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
-                                }
-                            }
-                            else
-                            {
-                                Render.Add(-1);
-
-                                MeshTexture.Add(-1);
-
-                                MeshTextureCollection.Add(-1);
+                                L0 = V1;
                             }
 
-                            Plane.Add(ownerA);
+                            var primary = level.Sides[sideIndex].Primary.Texture.Collection;
 
-                            Portal.Add(-1);
+                            var primaryX = (float)level.Sides[sideIndex].Primary.X / 1024;
 
-                            Collision.Add(ownerA);
+                            var primaryY = (float)-level.Sides[sideIndex].Primary.Y / 1024;
 
-                            Transparent.Add(-1);
+                            var primaryBit = level.Sides[sideIndex].Primary.Texture.Bitmap;
 
-                            Mesh mesh = new Mesh();
+                            var primaryLight = level.Sides[sideIndex].PrimaryLightsourceIndex;
 
-                            mesh.SetVertices(CW);
+                            var textureCount = 0;
 
-                            if (sideIndex == -1)
+                            if (primary == 17)
                             {
-                                mesh.SetUVs(0, CWUV);
+                                textureCount = 0;
                             }
-                            else
+                            if (primary == 18)
                             {
-                                if (level.Sides[sideIndex].Primary.Texture.IsEmpty())
-                                {
-                                    mesh.SetUVs(0, CWUV);
-                                }
-                                else
-                                {
-                                    mesh.SetUVs(0, CWUVOffsetZ);
-                                }
+                                textureCount = 30;
                             }
-
-                            mesh.SetTriangles(walltri, 0);
-                            mesh.RecalculateNormals();
-
-                            meshes.Add(mesh);
-                        }
-                        else
-                        {
-                            double YC0 = (float)polygon.CeilingHeight / 1024 * Scale;
-                            double YC1 = (float)polygon.FloorHeight / 1024 * Scale;
-
-                            CW.Clear();
-                            CWUV.Clear();
-                            CWUVOffset.Clear();
-                            CWUVOffsetZ.Clear();
-
-                            GetVerts(X0, X1, YC1, YC0, Z0, Z1);
-
-                            if (sideIndex != -1)
+                            if (primary == 19)
                             {
-                                MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
-
-                                if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
-                                    level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
-                                {
-                                    Render.Add(-1);
-
-                                    MeshTexture.Add(-1);
-
-                                    MeshTextureCollection.Add(-1);
-                                }
-                                else
-                                {
-                                    Render.Add(ownerA);
-
-                                    MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
-
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
-                                }
+                                textureCount = 60;
                             }
-                            else
+                            if (primary == 20)
                             {
-                                Render.Add(-1);
-
-                                MeshTexture.Add(-1);
-
-                                MeshTextureCollection.Add(-1);
+                                textureCount = 90;
+                            }
+                            if (primary == 21)
+                            {
+                                textureCount = 125;
                             }
 
-                            Plane.Add(ownerA);
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L0, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)V0, (float)Z1));
 
-                            Portal.Add(-1);
+                            LevelLists.vertices.Add(new float3((float)X0, (float)V0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L1, (float)Z0));
 
-                            Collision.Add(ownerA);
+                            float3 leftPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 3] - LevelLists.vertices[vertexIndex + 2]);
+                            float leftPlaneDistance1 = -math.dot(leftPlaneNormal1, LevelLists.vertices[vertexIndex + 2]);
 
-                            Transparent.Add(-1);
+                            float3 topPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 2] - LevelLists.vertices[vertexIndex + 1]);
+                            float topPlaneDistance1 = -math.dot(topPlaneNormal1, LevelLists.vertices[vertexIndex + 2]);
 
-                            Mesh mesh = new Mesh();
+                            LeftPlane1 = new MathematicalPlane { normal = leftPlaneNormal1, distance = leftPlaneDistance1 };
+                            TopPlane1 = new MathematicalPlane { normal = topPlaneNormal1, distance = topPlaneDistance1 };
 
-                            mesh.SetVertices(CW);
+                            LevelLists.textures.Add(float4.zero);
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 2]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 2]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 3]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 3]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 4]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 4]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(float4.zero);
 
-                            if (sideIndex == -1)
+                            PolygonMeta sm = new PolygonMeta();
+
+                            sm.renderStartIndex = -1;
+                            sm.renderCount = -1;
+
+                            sm.collideStartIndex = -1;
+                            sm.collideCount = -1;
+
+                            if (V0 > L0)
                             {
-                                mesh.SetUVs(0, CWUV);
+                                if (primary == 17 || primary == 18 || primary == 19 || primary == 20 || primary == 21)
+                                {
+                                    LevelLists.render.Add(vertexIndex + 1);
+                                    LevelLists.render.Add(vertexIndex + 2);
+                                    LevelLists.render.Add(vertexIndex + 3);
+                                    LevelLists.render.Add(vertexIndex + 1);
+                                    LevelLists.render.Add(vertexIndex + 3);
+                                    LevelLists.render.Add(vertexIndex + 4);
+
+                                    sm.renderStartIndex = renderStart;
+                                    sm.renderCount = 6;
+                                }
+
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex + 3);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 3);
+                                LevelLists.collide.Add(vertexIndex + 4);
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 6;
                             }
-                            else
+
+                            sm.edgeStartIndex = -1;
+                            sm.edgeCount = -1;
+
+                            sm.connectedSectorId = -1;
+                            sm.sectorId = ownerA;
+
+                            if (L0 > L1)
                             {
-                                if (level.Sides[sideIndex].Primary.Texture.IsEmpty())
-                                {
-                                    mesh.SetUVs(0, CWUV);
-                                }
-                                else
-                                {
-                                    mesh.SetUVs(0, CWUVOffsetZ);
-                                }
+                                LevelLists.edges.Add(vertexIndex);
+                                LevelLists.edges.Add(vertexIndex + 1);
+                                LevelLists.edges.Add(vertexIndex + 1);
+                                LevelLists.edges.Add(vertexIndex + 4);
+                                LevelLists.edges.Add(vertexIndex + 4);
+                                LevelLists.edges.Add(vertexIndex + 5);
+                                LevelLists.edges.Add(vertexIndex + 5);
+                                LevelLists.edges.Add(vertexIndex);
+
+                                sm.connectedSectorId = ownerB;
+
+                                sm.edgeStartIndex = edgesStart;
+                                sm.edgeCount = 8;
                             }
 
-                            mesh.SetTriangles(walltri, 0);
-                            mesh.RecalculateNormals();
-
-                            meshes.Add(mesh);
-                        }
-                    }
-                    if (line.LowestAdjacentCeiling != line.HighestAdjacentFloor)
-                    {
-                        if (polygon.CeilingHeight > line.HighestAdjacentFloor &&
-                            polygon.FloorHeight < line.LowestAdjacentCeiling)
-                        {
-                            double YC = (float)line.LowestAdjacentCeiling / 1024 * Scale;
-                            double YF = (float)line.HighestAdjacentFloor / 1024 * Scale;
-
-                            CW.Clear();
-                            CWUV.Clear();
-                            CWUVOffset.Clear();
-                            CWUVOffsetZ.Clear();
-
-                            GetVerts(X0, X1, YF, YC, Z0, Z1);
-
-                            Plane.Add(ownerA);
-
-                            Portal.Add(ownerB);
-
-                            if (sideIndex != -1)
-                            {
-                                if (!level.Sides[sideIndex].Transparent.Texture.IsEmpty())
-                                {
-                                    if (level.Sides[sideIndex].Transparent.Texture.Collection == 27 || level.Sides[sideIndex].Transparent.Texture.Collection == 28 ||
-                                        level.Sides[sideIndex].Transparent.Texture.Collection == 29 || level.Sides[sideIndex].Transparent.Texture.Collection == 30)
-                                    {
-                                        Render.Add(-1);
-
-                                        Transparent.Add(-1);
-                                    }
-                                    else
-                                    {
-                                        Render.Add(-1);
-
-                                        Transparent.Add(ownerA);
-                                    }
-
-                                    MakeSides(level.Sides[sideIndex].Transparent, level.Sides[sideIndex].TransparentLightsourceIndex);
-
-                                    MeshTexture.Add(level.Sides[sideIndex].Transparent.Texture.Bitmap);
-
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Transparent.Texture.Collection);
-                                }
-                                else
-                                {
-                                    Render.Add(-1);
-
-                                    Transparent.Add(-1);
-
-                                    MeshTexture.Add(-1);
-
-                                    MeshTextureCollection.Add(-1);
-                                }
-                            }
-                            else
-                            {
-                                Render.Add(-1);
-
-                                Transparent.Add(-1);
-
-                                MeshTexture.Add(-1);
-
-                                MeshTextureCollection.Add(-1);
-                            }
+                            sm.plane = LevelLists.planes.Length;
 
                             if (line.Solid == true)
                             {
-                                Collision.Add(ownerA);
+                                LevelLists.collide.Add(vertexIndex + 0);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 4);
+                                LevelLists.collide.Add(vertexIndex + 0);
+                                LevelLists.collide.Add(vertexIndex + 4);
+                                LevelLists.collide.Add(vertexIndex + 5);
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 12;
                             }
-                            else
+
+                            LevelLists.polygons.Add(sm);
+
+                            float3 v0 = LevelLists.vertices[vertexIndex];
+                            float3 v1 = LevelLists.vertices[vertexIndex + 1];
+                            float3 v2 = LevelLists.vertices[vertexIndex + 4];
+
+                            float3 n = math.normalize(math.cross(v1 - v0, v2 - v0));
+
+                            MathematicalPlane plane = new MathematicalPlane
                             {
-                                Collision.Add(-1);
-                            }
+                                normal = n,
+                                distance = -math.dot(n, v0)
+                            };
 
-                            Mesh mesh = new Mesh();
+                            LevelLists.planes.Add(plane);
 
-                            mesh.SetVertices(CW);
-
-                            if (sideIndex != -1)
-                            {
-                                if (!level.Sides[sideIndex].Transparent.Texture.IsEmpty())
-                                {
-                                    mesh.SetUVs(0, CWUVOffsetZ);
-                                }
-                                else
-                                {
-                                    mesh.SetUVs(0, CWUV);
-                                }
-                            }
-                            else
-                            {
-                                mesh.SetUVs(0, CWUV);
-                            }
-
-                            mesh.SetTriangles(walltri, 0);
-                            mesh.RecalculateNormals();
-
-                            meshes.Add(mesh);
+                            polygonCount += 1;
                         }
-                    }
-
-                    if (polygon.FloorHeight < line.HighestAdjacentFloor)
-                    {
-                        if (polygon.CeilingHeight > line.HighestAdjacentFloor)
+                        else if (type == SideType.Low)
                         {
-                            double YF0 = (float)polygon.FloorHeight / 1024 * Scale;
-                            double YF1 = (float)line.HighestAdjacentFloor / 1024 * Scale;
-
-                            CW.Clear();
-                            CWUV.Clear();
-                            CWUVOffset.Clear();
-                            CWUVOffsetZ.Clear();
-
-                            GetVerts(X0, X1, YF0, YF1, Z0, Z1);
-
-                            if (sideIndex != -1)
+                            if (polygon.CeilingHeight < line.HighestAdjacentFloor)
                             {
-                                if (level.Sides[sideIndex].Type == SideType.Low)
-                                {
-                                    MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
+                                L1 = V0;
+                            }
 
-                                    if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
-                                        level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
+                            var primary = level.Sides[sideIndex].Primary.Texture.Collection;
+
+                            var primaryX = (float)level.Sides[sideIndex].Primary.X / 1024;
+
+                            var primaryY = (float)-level.Sides[sideIndex].Primary.Y / 1024;
+
+                            var primaryBit = level.Sides[sideIndex].Primary.Texture.Bitmap;
+
+                            var primaryLight = level.Sides[sideIndex].PrimaryLightsourceIndex;
+
+                            var textureCount = 0;
+
+                            if (primary == 17)
+                            {
+                                textureCount = 0;
+                            }
+                            if (primary == 18)
+                            {
+                                textureCount = 30;
+                            }
+                            if (primary == 19)
+                            {
+                                textureCount = 60;
+                            }
+                            if (primary == 20)
+                            {
+                                textureCount = 90;
+                            }
+                            if (primary == 21)
+                            {
+                                textureCount = 125;
+                            }
+
+                            LevelLists.vertices.Add(new float3((float)X1, (float)V1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L0, (float)Z1));
+
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L1, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)V1, (float)Z0));
+
+                            float3 leftPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 4] - LevelLists.vertices[vertexIndex + 1]);
+                            float leftPlaneDistance1 = -math.dot(leftPlaneNormal1, LevelLists.vertices[vertexIndex + 1]);
+
+                            float3 topPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 1] - LevelLists.vertices[vertexIndex]);
+                            float topPlaneDistance1 = -math.dot(topPlaneNormal1, LevelLists.vertices[vertexIndex + 1]);
+
+                            LeftPlane1 = new MathematicalPlane { normal = leftPlaneNormal1, distance = leftPlaneDistance1 };
+                            TopPlane1 = new MathematicalPlane { normal = topPlaneNormal1, distance = topPlaneDistance1 };
+
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(float4.zero);
+                            LevelLists.textures.Add(float4.zero);
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 4]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 4]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 5]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 5]) / Scale + primaryY, primaryBit + textureCount, primaryLight));
+
+                            PolygonMeta sm = new PolygonMeta();
+
+                            sm.renderStartIndex = -1;
+                            sm.renderCount = -1;
+
+                            sm.collideStartIndex = -1;
+                            sm.collideCount = -1;
+
+                            if (L1 > V1)
+                            {
+                                if (primary == 17 || primary == 18 || primary == 19 || primary == 20 || primary == 21)
+                                {
+                                    LevelLists.render.Add(vertexIndex);
+                                    LevelLists.render.Add(vertexIndex + 1);
+                                    LevelLists.render.Add(vertexIndex + 4);
+                                    LevelLists.render.Add(vertexIndex);
+                                    LevelLists.render.Add(vertexIndex + 4);
+                                    LevelLists.render.Add(vertexIndex + 5);
+
+                                    sm.renderStartIndex = renderStart;
+                                    sm.renderCount = 6;
+                                }
+
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 4);
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 4);
+                                LevelLists.collide.Add(vertexIndex + 5);
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 6;
+                            }
+
+                            sm.edgeStartIndex = -1;
+                            sm.edgeCount = -1;
+
+                            sm.connectedSectorId = -1;
+                            sm.sectorId = ownerA;
+
+                            if (L0 > L1)
+                            {
+                                LevelLists.edges.Add(vertexIndex + 1);
+                                LevelLists.edges.Add(vertexIndex + 2);
+                                LevelLists.edges.Add(vertexIndex + 2);
+                                LevelLists.edges.Add(vertexIndex + 3);
+                                LevelLists.edges.Add(vertexIndex + 3);
+                                LevelLists.edges.Add(vertexIndex + 4);
+                                LevelLists.edges.Add(vertexIndex + 4);
+                                LevelLists.edges.Add(vertexIndex + 1);
+
+                                sm.connectedSectorId = ownerB;
+
+                                sm.edgeStartIndex = edgesStart;
+                                sm.edgeCount = 8;
+                            }
+
+                            sm.plane = LevelLists.planes.Length;
+
+                            if (line.Solid == true)
+                            {
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex + 3);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 3);
+                                LevelLists.collide.Add(vertexIndex + 4);
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 12;
+                            }
+
+                            LevelLists.polygons.Add(sm);
+
+                            float3 v0 = LevelLists.vertices[vertexIndex + 1];
+                            float3 v1 = LevelLists.vertices[vertexIndex + 2];
+                            float3 v2 = LevelLists.vertices[vertexIndex + 3];
+
+                            float3 n = math.normalize(math.cross(v1 - v0, v2 - v0));
+
+                            MathematicalPlane plane = new MathematicalPlane
+                            {
+                                normal = n,
+                                distance = -math.dot(n, v0)
+                            };
+
+                            LevelLists.planes.Add(plane);
+
+                            polygonCount += 1;
+                        }
+                        else if (type == SideType.Split)
+                        {
+                            var primary = level.Sides[sideIndex].Primary.Texture.Collection;
+
+                            var primaryX = (float)level.Sides[sideIndex].Primary.X / 1024;
+
+                            var primaryY = (float)-level.Sides[sideIndex].Primary.Y / 1024;
+
+                            var secondary = level.Sides[sideIndex].Secondary.Texture.Collection;
+
+                            var secondaryX = (float)level.Sides[sideIndex].Secondary.X / 1024;
+
+                            var secondaryY = (float)-level.Sides[sideIndex].Secondary.Y / 1024;
+
+                            var primaryBit = level.Sides[sideIndex].Primary.Texture.Bitmap;
+
+                            var secondaryBit = level.Sides[sideIndex].Secondary.Texture.Bitmap;
+
+                            var primaryLight = level.Sides[sideIndex].PrimaryLightsourceIndex;
+
+                            var secondaryLight = level.Sides[sideIndex].SecondaryLightsourceIndex;
+
+                            var primaryCount = 0;
+
+                            if (primary == 17)
+                            {
+                                primaryCount = 0;
+                            }
+                            if (primary == 18)
+                            {
+                                primaryCount = 30;
+                            }
+                            if (primary == 19)
+                            {
+                                primaryCount = 60;
+                            }
+                            if (primary == 20)
+                            {
+                                primaryCount = 90;
+                            }
+                            if (primary == 21)
+                            {
+                                primaryCount = 125;
+                            }
+
+                            var secondaryCount = 0;
+
+                            if (secondary == 17)
+                            {
+                                secondaryCount = 0;
+                            }
+                            if (secondary == 18)
+                            {
+                                secondaryCount = 30;
+                            }
+                            if (secondary == 19)
+                            {
+                                secondaryCount = 60;
+                            }
+                            if (secondary == 20)
+                            {
+                                secondaryCount = 90;
+                            }
+                            if (secondary == 21)
+                            {
+                                secondaryCount = 125;
+                            }
+
+                            LevelLists.vertices.Add(new float3((float)X1, (float)V1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L0, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)V0, (float)Z1));
+
+                            LevelLists.vertices.Add(new float3((float)X0, (float)V0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L1, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)V1, (float)Z0));
+
+                            float3 leftPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 6] - LevelLists.vertices[vertexIndex + 1]);
+                            float leftPlaneDistance1 = -math.dot(leftPlaneNormal1, LevelLists.vertices[vertexIndex + 1]);
+
+                            float3 topPlaneNormal1 = math.normalize(LevelLists.vertices[vertexIndex + 1] - LevelLists.vertices[vertexIndex]);
+                            float topPlaneDistance1 = -math.dot(topPlaneNormal1, LevelLists.vertices[vertexIndex + 1]);
+
+                            float3 leftPlaneNormal2 = math.normalize(LevelLists.vertices[vertexIndex + 4] - LevelLists.vertices[vertexIndex + 3]);
+                            float leftPlaneDistance2 = -math.dot(leftPlaneNormal2, LevelLists.vertices[vertexIndex + 3]);
+
+                            float3 topPlaneNormal2 = math.normalize(LevelLists.vertices[vertexIndex + 3] - LevelLists.vertices[vertexIndex + 2]);
+                            float topPlaneDistance2 = -math.dot(topPlaneNormal2, LevelLists.vertices[vertexIndex + 3]);
+
+                            LeftPlane1 = new MathematicalPlane { normal = leftPlaneNormal1, distance = leftPlaneDistance1 };
+                            TopPlane1 = new MathematicalPlane { normal = topPlaneNormal1, distance = topPlaneDistance1 };
+
+                            LeftPlane2 = new MathematicalPlane { normal = leftPlaneNormal2, distance = leftPlaneDistance2 };
+                            TopPlane2 = new MathematicalPlane { normal = topPlaneNormal2, distance = topPlaneDistance2 };
+
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex]) / Scale + secondaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex]) / Scale + secondaryY, secondaryBit + secondaryCount, secondaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + secondaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 1]) / Scale + secondaryY, secondaryBit + secondaryCount, secondaryLight));
+
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane2, LevelLists.vertices[vertexIndex + 2]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane2, LevelLists.vertices[vertexIndex + 2]) / Scale + primaryY, primaryBit + primaryCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane2, LevelLists.vertices[vertexIndex + 3]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane2, LevelLists.vertices[vertexIndex + 3]) / Scale + primaryY, primaryBit + primaryCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane2, LevelLists.vertices[vertexIndex + 4]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane2, LevelLists.vertices[vertexIndex + 4]) / Scale + primaryY, primaryBit + primaryCount, primaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane2, LevelLists.vertices[vertexIndex + 5]) / Scale + primaryX, GetPlaneSignedDistanceToPoint(TopPlane2, LevelLists.vertices[vertexIndex + 5]) / Scale + primaryY, primaryBit + primaryCount, primaryLight));
+
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 6]) / Scale + secondaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 6]) / Scale + secondaryY, secondaryBit + secondaryCount, secondaryLight));
+                            LevelLists.textures.Add(new float4(GetPlaneSignedDistanceToPoint(LeftPlane1, LevelLists.vertices[vertexIndex + 7]) / Scale + secondaryX, GetPlaneSignedDistanceToPoint(TopPlane1, LevelLists.vertices[vertexIndex + 7]) / Scale + secondaryY, secondaryBit + secondaryCount, secondaryLight));
+
+                            PolygonMeta sm = new PolygonMeta();
+
+                            sm.renderStartIndex = -1;
+                            sm.renderCount = -1;
+
+                            sm.collideStartIndex = -1;
+                            sm.collideCount = -1;
+
+                            if (V0 > L0)
+                            {
+                                if (primary == 17 || primary == 18 || primary == 19 || primary == 20 || primary == 21)
+                                {
+                                    LevelLists.render.Add(vertexIndex + 2);
+                                    LevelLists.render.Add(vertexIndex + 3);
+                                    LevelLists.render.Add(vertexIndex + 4);
+                                    LevelLists.render.Add(vertexIndex + 2);
+                                    LevelLists.render.Add(vertexIndex + 4);
+                                    LevelLists.render.Add(vertexIndex + 5);
+                                }
+
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex + 3);
+                                LevelLists.collide.Add(vertexIndex + 4);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex + 4);
+                                LevelLists.collide.Add(vertexIndex + 5);
+                            }
+
+                            if (L1 > V1)
+                            {
+                                if (secondary == 17 || secondary == 18 || secondary == 19 || secondary == 20 || secondary == 21)
+                                {
+                                    LevelLists.render.Add(vertexIndex);
+                                    LevelLists.render.Add(vertexIndex + 1);
+                                    LevelLists.render.Add(vertexIndex + 6);
+                                    LevelLists.render.Add(vertexIndex);
+                                    LevelLists.render.Add(vertexIndex + 6);
+                                    LevelLists.render.Add(vertexIndex + 7);
+                                }
+
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 6);
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 6);
+                                LevelLists.collide.Add(vertexIndex + 7);
+                            }
+
+                            if (V0 > L0 && L1 == V1)
+                            {
+                                sm.renderStartIndex = renderStart;
+                                sm.renderCount = 6;
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 6;
+                            }
+                            else if (V0 == L0 && L1 > V1)
+                            {
+                                sm.renderStartIndex = renderStart;
+                                sm.renderCount = 6;
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 6;
+                            }
+                            else if (L1 > V1 && V0 > L0)
+                            {
+                                sm.renderStartIndex = renderStart;
+                                sm.renderCount = 12;
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 12;
+                            }
+
+                            sm.edgeStartIndex = -1;
+                            sm.edgeCount = -1;
+
+                            sm.connectedSectorId = -1;
+                            sm.sectorId = ownerA;
+
+                            if (L0 > L1)
+                            {
+                                if (line.Solid == true)
+                                {
+                                    LevelLists.collide.Add(vertexIndex + 1);
+                                    LevelLists.collide.Add(vertexIndex + 2);
+                                    LevelLists.collide.Add(vertexIndex + 5);
+                                    LevelLists.collide.Add(vertexIndex + 1);
+                                    LevelLists.collide.Add(vertexIndex + 5);
+                                    LevelLists.collide.Add(vertexIndex + 6);
+
+                                    if (V0 > L0 && L1 == V1)
                                     {
-                                        Render.Add(-1);
+                                        sm.collideStartIndex = collideStart;
+                                        sm.collideCount = 12;
+                                    }
+                                    else if (V0 == L0 && L1 > V1)
+                                    {
+                                        sm.collideStartIndex = collideStart;
+                                        sm.collideCount = 12;
+                                    }
+                                    else if (L1 > V1 && V0 > L0)
+                                    {
+                                        sm.collideStartIndex = collideStart;
+                                        sm.collideCount = 18;
                                     }
                                     else
                                     {
-                                        Render.Add(ownerA);
+                                        sm.collideStartIndex = collideStart;
+                                        sm.collideCount = 6;
                                     }
-
-                                    MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
-
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
                                 }
-                                else if (level.Sides[sideIndex].Type == SideType.Split)
-                                {
-                                    MakeSides(level.Sides[sideIndex].Secondary, level.Sides[sideIndex].SecondaryLightsourceIndex);
 
-                                    if (level.Sides[sideIndex].Secondary.Texture.Collection == 27 || level.Sides[sideIndex].Secondary.Texture.Collection == 28 ||
-                                        level.Sides[sideIndex].Secondary.Texture.Collection == 29 || level.Sides[sideIndex].Secondary.Texture.Collection == 30)
-                                    {
-                                        Render.Add(-1);
-                                    }
-                                    else
-                                    {
-                                        Render.Add(ownerA);
-                                    }
+                                LevelLists.edges.Add(vertexIndex + 1);
+                                LevelLists.edges.Add(vertexIndex + 2);
+                                LevelLists.edges.Add(vertexIndex + 2);
+                                LevelLists.edges.Add(vertexIndex + 5);
+                                LevelLists.edges.Add(vertexIndex + 5);
+                                LevelLists.edges.Add(vertexIndex + 6);
+                                LevelLists.edges.Add(vertexIndex + 6);
+                                LevelLists.edges.Add(vertexIndex + 1);
 
-                                    MeshTexture.Add(level.Sides[sideIndex].Secondary.Texture.Bitmap);
+                                sm.connectedSectorId = ownerB;
 
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Secondary.Texture.Collection);
-                                }
-                                else
-                                {
-                                    Render.Add(-1);
-
-                                    MeshTexture.Add(-1);
-
-                                    MeshTextureCollection.Add(-1);
-                                }
+                                sm.edgeStartIndex = edgesStart;
+                                sm.edgeCount = 8;
                             }
-                            else
+
+                            sm.plane = LevelLists.planes.Length;
+
+                            LevelLists.polygons.Add(sm);
+
+                            float3 v0 = LevelLists.vertices[vertexIndex + 1];
+                            float3 v1 = LevelLists.vertices[vertexIndex + 2];
+                            float3 v2 = LevelLists.vertices[vertexIndex + 5];
+
+                            float3 n = math.normalize(math.cross(v1 - v0, v2 - v0));
+
+                            MathematicalPlane plane = new MathematicalPlane
                             {
-                                Render.Add(-1);
+                                normal = n,
+                                distance = -math.dot(n, v0)
+                            };
 
-                                MeshTexture.Add(-1);
+                            LevelLists.planes.Add(plane);
 
-                                MeshTextureCollection.Add(-1);
-                            }
-
-                            Plane.Add(ownerA);
-
-                            Portal.Add(-1);
-
-                            Collision.Add(ownerA);
-
-                            Transparent.Add(-1);
-
-                            Mesh mesh = new Mesh();
-
-                            mesh.SetVertices(CW);
-
-                            if (sideIndex != -1)
-                            {
-                                if (level.Sides[sideIndex].Type == SideType.Low)
-                                {
-                                    if (sideIndex == -1)
-                                    {
-                                        mesh.SetUVs(0, CWUV);
-                                    }
-                                    else
-                                    {
-                                        if (level.Sides[sideIndex].Primary.Texture.IsEmpty())
-                                        {
-                                            mesh.SetUVs(0, CWUV);
-                                        }
-                                        else
-                                        {
-                                            mesh.SetUVs(0, CWUVOffsetZ);
-                                        }
-                                    }
-                                }
-                                else if (level.Sides[sideIndex].Type == SideType.Split)
-                                {
-                                    if (sideIndex == -1)
-                                    {
-                                        mesh.SetUVs(0, CWUV);
-                                    }
-                                    else
-                                    {
-                                        if (level.Sides[sideIndex].Secondary.Texture.IsEmpty())
-                                        {
-                                            mesh.SetUVs(0, CWUV);
-                                        }
-                                        else
-                                        {
-                                            mesh.SetUVs(0, CWUVOffsetZ);
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    mesh.SetUVs(0, CWUV);
-                                }
-                            }
-                            else
-                            {
-                                mesh.SetUVs(0, CWUV);
-                            }
-
-                            mesh.SetTriangles(walltri, 0);
-                            mesh.RecalculateNormals();
-
-                            meshes.Add(mesh);
+                            polygonCount += 1;
                         }
                         else
                         {
-                            double YF0 = (float)polygon.FloorHeight / 1024 * Scale;
-                            double YF1 = (float)polygon.CeilingHeight / 1024 * Scale;
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L1, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X1, (float)L0, (float)Z1));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L0, (float)Z0));
+                            LevelLists.vertices.Add(new float3((float)X0, (float)L1, (float)Z0));
 
-                            CW.Clear();
-                            CWUV.Clear();
-                            CWUVOffset.Clear();
-                            CWUVOffsetZ.Clear();
+                            LevelLists.textures.Add(float4.zero);
+                            LevelLists.textures.Add(float4.zero);
+                            LevelLists.textures.Add(float4.zero);
+                            LevelLists.textures.Add(float4.zero);
 
-                            GetVerts(X0, X1, YF0, YF1, Z0, Z1);
+                            PolygonMeta sm = new PolygonMeta();
 
-                            if (sideIndex != -1)
+                            sm.renderStartIndex = -1;
+                            sm.renderCount = -1;
+
+                            sm.collideStartIndex = -1;
+                            sm.collideCount = -1;
+
+                            sm.connectedSectorId = -1;
+                            sm.sectorId = ownerA;
+
+                            sm.plane = LevelLists.planes.Length;
+
+                            sm.edgeStartIndex = -1;
+                            sm.edgeCount = -1;
+
+                            if (L0 > L1)
                             {
-                                if (level.Sides[sideIndex].Type == SideType.Low)
+                                if (line.Solid == true)
                                 {
-                                    MakeSides(level.Sides[sideIndex].Primary, level.Sides[sideIndex].PrimaryLightsourceIndex);
+                                    LevelLists.collide.Add(vertexIndex);
+                                    LevelLists.collide.Add(vertexIndex + 1);
+                                    LevelLists.collide.Add(vertexIndex + 2);
+                                    LevelLists.collide.Add(vertexIndex);
+                                    LevelLists.collide.Add(vertexIndex + 2);
+                                    LevelLists.collide.Add(vertexIndex + 3);
 
-                                    if (level.Sides[sideIndex].Primary.Texture.Collection == 27 || level.Sides[sideIndex].Primary.Texture.Collection == 28 ||
-                                        level.Sides[sideIndex].Primary.Texture.Collection == 29 || level.Sides[sideIndex].Primary.Texture.Collection == 30)
-                                    {
-                                        Render.Add(-1);
-                                    }
-                                    else
-                                    {
-                                        Render.Add(ownerA);
-                                    }
-
-                                    MeshTexture.Add(level.Sides[sideIndex].Primary.Texture.Bitmap);
-
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Primary.Texture.Collection);
+                                    sm.collideStartIndex = collideStart;
+                                    sm.collideCount = 6;
                                 }
-                                else if (level.Sides[sideIndex].Type == SideType.Split)
-                                {
-                                    MakeSides(level.Sides[sideIndex].Secondary, level.Sides[sideIndex].SecondaryLightsourceIndex);
 
-                                    if (level.Sides[sideIndex].Secondary.Texture.Collection == 27 || level.Sides[sideIndex].Secondary.Texture.Collection == 28 ||
-                                        level.Sides[sideIndex].Secondary.Texture.Collection == 29 || level.Sides[sideIndex].Secondary.Texture.Collection == 30)
-                                    {
-                                        Render.Add(-1);
-                                    }
-                                    else
-                                    {
-                                        Render.Add(ownerA);
-                                    }
+                                LevelLists.edges.Add(vertexIndex);
+                                LevelLists.edges.Add(vertexIndex + 1);
+                                LevelLists.edges.Add(vertexIndex + 1);
+                                LevelLists.edges.Add(vertexIndex + 2);
+                                LevelLists.edges.Add(vertexIndex + 2);
+                                LevelLists.edges.Add(vertexIndex + 3);
+                                LevelLists.edges.Add(vertexIndex + 3);
+                                LevelLists.edges.Add(vertexIndex);
 
-                                    MeshTexture.Add(level.Sides[sideIndex].Secondary.Texture.Bitmap);
+                                sm.connectedSectorId = ownerB;
 
-                                    MeshTextureCollection.Add(level.Sides[sideIndex].Secondary.Texture.Collection);
-                                }
-                                else
-                                {
-                                    Render.Add(-1);
-
-                                    MeshTexture.Add(-1);
-
-                                    MeshTextureCollection.Add(-1);
-                                }
-                            }
-                            else
-                            {
-                                Render.Add(-1);
-
-                                MeshTexture.Add(-1);
-
-                                MeshTextureCollection.Add(-1);
+                                sm.edgeStartIndex = edgesStart;
+                                sm.edgeCount = 8;
                             }
 
-                            Plane.Add(ownerA);
+                            LevelLists.polygons.Add(sm);
 
-                            Portal.Add(-1);
+                            float3 v0 = LevelLists.vertices[vertexIndex];
+                            float3 v1 = LevelLists.vertices[vertexIndex + 1];
+                            float3 v2 = LevelLists.vertices[vertexIndex + 2];
 
-                            Collision.Add(ownerA);
+                            float3 n = math.normalize(math.cross(v1 - v0, v2 - v0));
 
-                            Transparent.Add(-1);
-
-                            Mesh mesh = new Mesh();
-
-                            mesh.SetVertices(CW);
-
-                            if (sideIndex != -1)
+                            MathematicalPlane plane = new MathematicalPlane
                             {
-                                if (level.Sides[sideIndex].Type == SideType.Low)
-                                {
-                                    if (sideIndex == -1)
-                                    {
-                                        mesh.SetUVs(0, CWUV);
-                                    }
-                                    else
-                                    {
-                                        if (level.Sides[sideIndex].Primary.Texture.IsEmpty())
-                                        {
-                                            mesh.SetUVs(0, CWUV);
-                                        }
-                                        else
-                                        {
-                                            mesh.SetUVs(0, CWUVOffsetZ);
-                                        }
-                                    }
-                                }
-                                else if (level.Sides[sideIndex].Type == SideType.Split)
-                                {
-                                    if (sideIndex == -1)
-                                    {
-                                        mesh.SetUVs(0, CWUV);
-                                    }
-                                    else
-                                    {
-                                        if (level.Sides[sideIndex].Secondary.Texture.IsEmpty())
-                                        {
-                                            mesh.SetUVs(0, CWUV);
-                                        }
-                                        else
-                                        {
-                                            mesh.SetUVs(0, CWUVOffsetZ);
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    mesh.SetUVs(0, CWUV);
-                                }
-                            }
-                            else
-                            {
-                                mesh.SetUVs(0, CWUV);
-                            }
+                                normal = n,
+                                distance = -math.dot(n, v0)
+                            };
 
-                            mesh.SetTriangles(walltri, 0);
-                            mesh.RecalculateNormals();
+                            LevelLists.planes.Add(plane);
 
-                            meshes.Add(mesh);
+                            polygonCount += 1;
                         }
+                    }
+                }
+                else
+                {
+                    if (ownerB != -1)
+                    {
+                        LevelLists.vertices.Add(new float3((float)X1, (float)L1, (float)Z1));
+                        LevelLists.vertices.Add(new float3((float)X1, (float)L0, (float)Z1));
+                        LevelLists.vertices.Add(new float3((float)X0, (float)L0, (float)Z0));
+                        LevelLists.vertices.Add(new float3((float)X0, (float)L1, (float)Z0));
+
+                        LevelLists.textures.Add(float4.zero);
+                        LevelLists.textures.Add(float4.zero);
+                        LevelLists.textures.Add(float4.zero);
+                        LevelLists.textures.Add(float4.zero);
+
+                        PolygonMeta sm = new PolygonMeta();
+
+                        sm.renderStartIndex = -1;
+                        sm.renderCount = -1;
+
+                        sm.collideStartIndex = -1;
+                        sm.collideCount = -1;
+
+                        sm.connectedSectorId = -1;
+                        sm.sectorId = ownerA;
+
+                        sm.plane = LevelLists.planes.Length;
+
+                        sm.edgeStartIndex = -1;
+                        sm.edgeCount = -1;
+
+                        if (L0 > L1)
+                        {
+                            if (line.Solid == true)
+                            {
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 1);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex);
+                                LevelLists.collide.Add(vertexIndex + 2);
+                                LevelLists.collide.Add(vertexIndex + 3);
+
+                                sm.collideStartIndex = collideStart;
+                                sm.collideCount = 6;
+                            }
+
+                            LevelLists.edges.Add(vertexIndex);
+                            LevelLists.edges.Add(vertexIndex + 1);
+                            LevelLists.edges.Add(vertexIndex + 1);
+                            LevelLists.edges.Add(vertexIndex + 2);
+                            LevelLists.edges.Add(vertexIndex + 2);
+                            LevelLists.edges.Add(vertexIndex + 3);
+                            LevelLists.edges.Add(vertexIndex + 3);
+                            LevelLists.edges.Add(vertexIndex);
+
+                            sm.connectedSectorId = ownerB;
+
+                            sm.edgeStartIndex = edgesStart;
+                            sm.edgeCount = 8;
+                        }
+
+                        LevelLists.polygons.Add(sm);
+
+                        float3 v0 = LevelLists.vertices[vertexIndex];
+                        float3 v1 = LevelLists.vertices[vertexIndex + 1];
+                        float3 v2 = LevelLists.vertices[vertexIndex + 2];
+
+                        float3 n = math.normalize(math.cross(v1 - v0, v2 - v0));
+
+                        MathematicalPlane plane = new MathematicalPlane
+                        {
+                            normal = n,
+                            distance = -math.dot(n, v0)
+                        };
+
+                        LevelLists.planes.Add(plane);
+
+                        polygonCount += 1;
                     }
                 }
             }
@@ -2351,6 +2436,52 @@ public class BuildAndRunLevel : MonoBehaviour
 
                 float tinyNumber = 1e-6f;
 
+                var floorTextureCount = 0;
+
+                if (floorTexture == 17)
+                {
+                    floorTextureCount = 0;
+                }
+                if (floorTexture == 18)
+                {
+                    floorTextureCount = 30;
+                }
+                if (floorTexture == 19)
+                {
+                    floorTextureCount = 60;
+                }
+                if (floorTexture == 20)
+                {
+                    floorTextureCount = 90;
+                }
+                if (floorTexture == 21)
+                {
+                    floorTextureCount = 125;
+                }
+
+                var ceilingTextureCount = 0;
+
+                if (ceilingTexture == 17)
+                {
+                    ceilingTextureCount = 0;
+                }
+                if (ceilingTexture == 18)
+                {
+                    ceilingTextureCount = 30;
+                }
+                if (ceilingTexture == 19)
+                {
+                    ceilingTextureCount = 60;
+                }
+                if (ceilingTexture == 20)
+                {
+                    ceilingTextureCount = 90;
+                }
+                if (ceilingTexture == 21)
+                {
+                    ceilingTextureCount = 125;
+                }
+
                 for (int e = 0; e < polygon.VertexCount; ++e)
                 {
                     float YF = (float)polygon.FloorHeight / 1024 * Scale;
@@ -2363,10 +2494,10 @@ public class BuildAndRunLevel : MonoBehaviour
                     float YCOX = (float)(level.Endpoints[polygon.EndpointIndexes[e]].X + polygon.CeilingOrigin.X) / 1024 * -1;
                     float YCOY = (float)(level.Endpoints[polygon.EndpointIndexes[e]].Y + polygon.CeilingOrigin.Y) / 1024;
 
-                    floorverts.Add(new Vector3(X, YF, Z));
-                    flooruvs.Add(new Vector2(YFOY, YFOX));
-                    ceilingverts.Add(new Vector3(X, YC, Z));
-                    ceilinguvs.Add(new Vector2(YCOY, YCOX));
+                    floorverts.Add(new float3(X, YF, Z));
+                    flooruvs.Add(new float4(YFOY, YFOX, floorBit + floorTextureCount, floorLight));
+                    ceilingverts.Add(new float3(X, YC, Z));
+                    ceilinguvs.Add(new float4(YCOY, YCOX, ceilingBit + ceilingTextureCount, ceilingLight));
                 }
 
                 if (floorverts.Count > 2)
@@ -2375,22 +2506,22 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     for (int e = 0; e < floorverts.Count - 2; e++)
                     {
-                        Vector3 v0 = floorverts[0];
-                        Vector3 v1 = floorverts[e + 1];
-                        Vector3 v2 = floorverts[e + 2];
+                        float3 v0 = floorverts[0];
+                        float3 v1 = floorverts[e + 1];
+                        float3 v2 = floorverts[e + 2];
 
-                        Vector3 e0 = v1 - v0;
-                        Vector3 e1 = v2 - v1;
-                        Vector3 e2 = v2 - v0;
+                        float3 e0 = v1 - v0;
+                        float3 e1 = v2 - v1;
+                        float3 e2 = v2 - v0;
 
-                        if (e0.sqrMagnitude < tinyNumber || e1.sqrMagnitude < tinyNumber || e2.sqrMagnitude < tinyNumber)
+                        if (math.lengthsq(e0) < tinyNumber || math.lengthsq(e1) < tinyNumber || math.lengthsq(e2) < tinyNumber)
                         {
                             continue;
                         }
 
-                        Vector3 edges = Vector3.Cross(e0, e2);
+                        float3 edges = math.cross(e0, e2);
 
-                        if (edges.sqrMagnitude < tinyNumber)
+                        if (math.lengthsq(edges) < tinyNumber)
                         {
                             continue;
                         }
@@ -2399,82 +2530,73 @@ public class BuildAndRunLevel : MonoBehaviour
                         floortri.Add(e + 1);
                         floortri.Add(e + 2);
                     }
-
-                    Plane.Add(i);
-
-                    Portal.Add(-1);
-
-                    if (polygon.FloorTexture.Collection == 27 || polygon.FloorTexture.Collection == 28 ||
-                        polygon.FloorTexture.Collection == 29 || polygon.FloorTexture.Collection == 30)
-                    {
-                        Render.Add(-1);
-                    }
-                    else
-                    {
-                        Render.Add(i);
-                    }
-
-                    if (polygon.FloorTexture.Collection == 17)
-                    {
-                        for (int e = 0; e < flooruvs.Count; e++)
-                        {
-                            flooruvsz.Add(new Vector4(flooruvs[e].x, flooruvs[e].y, polygon.FloorTexture.Bitmap, polygon.FloorLight));
-                        }
-                    }
-                    if (polygon.FloorTexture.Collection == 18)
-                    {
-                        for (int e = 0; e < flooruvs.Count; e++)
-                        {
-                            flooruvsz.Add(new Vector4(flooruvs[e].x, flooruvs[e].y, polygon.FloorTexture.Bitmap + 30, polygon.FloorLight));
-                        }
-                    }
-                    if (polygon.FloorTexture.Collection == 19)
-                    {
-                        for (int e = 0; e < flooruvs.Count; e++)
-                        {
-                            flooruvsz.Add(new Vector4(flooruvs[e].x, flooruvs[e].y, polygon.FloorTexture.Bitmap + 60, polygon.FloorLight));
-                        }
-                    }
-                    if (polygon.FloorTexture.Collection == 20)
-                    {
-                        for (int e = 0; e < flooruvs.Count; e++)
-                        {
-                            flooruvsz.Add(new Vector4(flooruvs[e].x, flooruvs[e].y, polygon.FloorTexture.Bitmap + 90, polygon.FloorLight));
-                        }
-                    }
-                    if (polygon.FloorTexture.Collection == 21)
-                    {
-                        for (int e = 0; e < flooruvs.Count; e++)
-                        {
-                            flooruvsz.Add(new Vector4(flooruvs[e].x, flooruvs[e].y, polygon.FloorTexture.Bitmap + 125, polygon.FloorLight));
-                        }
-                    }
-                    if (polygon.FloorTexture.Collection == 27 || polygon.FloorTexture.Collection == 28 ||
-                        polygon.FloorTexture.Collection == 29 || polygon.FloorTexture.Collection == 30)
-                    {
-                        for (int e = 0; e < flooruvs.Count; e++)
-                        {
-                            flooruvsz.Add(new Vector4(flooruvs[e].x, flooruvs[e].y, polygon.FloorTexture.Bitmap, polygon.FloorLight));
-                        }
-                    }
-
-                    MeshTexture.Add(polygon.FloorTexture.Bitmap);
-
-                    MeshTextureCollection.Add(polygon.FloorTexture.Collection);
-
-                    Collision.Add(i);
-
-                    Transparent.Add(-1);
-
-                    Mesh mesh = new Mesh();
-
-                    mesh.SetVertices(floorverts);
-                    mesh.SetUVs(0, flooruvsz);
-                    mesh.SetTriangles(floortri, 0);
-                    mesh.RecalculateNormals();
-
-                    meshes.Add(mesh);
                 }
+
+                int baseFloor = LevelLists.vertices.Length;
+
+                int floorRenderIndex = LevelLists.render.Length;
+
+                int floorCollideIndex = LevelLists.collide.Length;
+
+                for (int e = 0; e < floorverts.Count; e++)
+                {
+                    LevelLists.vertices.Add(floorverts[e]);
+                }
+
+                for (int e = 0; e < floortri.Count; e++)
+                {
+                    LevelLists.collide.Add(baseFloor + floortri[e]);
+                }
+
+                PolygonMeta smFloor = new PolygonMeta();
+
+                smFloor.renderStartIndex = -1;
+                smFloor.renderCount = -1;
+
+                if (floorTexture == 17 || floorTexture == 18 || floorTexture == 19 || floorTexture == 20 || floorTexture == 21)
+                {
+                    for (int e = 0; e < floortri.Count; e++)
+                    {
+                        LevelLists.render.Add(baseFloor + floortri[e]);
+                    }
+
+                    smFloor.renderStartIndex = floorRenderIndex;
+                    smFloor.renderCount = floortri.Count;
+                }
+
+                for (int e = 0; e < flooruvs.Count; e++)
+                {
+                    LevelLists.textures.Add(flooruvs[e]);
+                }
+
+                smFloor.collideStartIndex = floorCollideIndex;
+                smFloor.collideCount = floortri.Count;
+
+                smFloor.edgeStartIndex = -1;
+                smFloor.edgeCount = -1;
+
+                smFloor.connectedSectorId = -1;
+                smFloor.sectorId = i;
+
+                smFloor.plane = LevelLists.planes.Length;
+
+                LevelLists.polygons.Add(smFloor);
+
+                polygonCount += 1;
+
+                float3 f0 = floorverts[floortri[0]];
+                float3 f1 = floorverts[floortri[1]];
+                float3 f2 = floorverts[floortri[2]];
+
+                float3 f = math.normalize(math.cross(f1 - f0, f2 - f0));
+
+                MathematicalPlane planeFloor = new MathematicalPlane
+                {
+                    normal = f,
+                    distance = -math.dot(f, f0)
+                };
+
+                LevelLists.planes.Add(planeFloor);
 
                 if (ceilingverts.Count > 2)
                 {
@@ -2486,22 +2608,22 @@ public class BuildAndRunLevel : MonoBehaviour
 
                     for (int e = 0; e < ceilingverts.Count - 2; e++)
                     {
-                        Vector3 v0 = ceilingverts[0];
-                        Vector3 v1 = ceilingverts[e + 1];
-                        Vector3 v2 = ceilingverts[e + 2];
+                        float3 v0 = ceilingverts[0];
+                        float3 v1 = ceilingverts[e + 1];
+                        float3 v2 = ceilingverts[e + 2];
 
-                        Vector3 e0 = v1 - v0;
-                        Vector3 e1 = v2 - v1;
-                        Vector3 e2 = v2 - v0;
+                        float3 e0 = v1 - v0;
+                        float3 e1 = v2 - v1;
+                        float3 e2 = v2 - v0;
 
-                        if (e0.sqrMagnitude < tinyNumber || e1.sqrMagnitude < tinyNumber || e2.sqrMagnitude < tinyNumber)
+                        if (math.lengthsq(e0) < tinyNumber || math.lengthsq(e1) < tinyNumber || math.lengthsq(e2) < tinyNumber)
                         {
                             continue;
                         }
 
-                        Vector3 edges = Vector3.Cross(e0, e2);
+                        float3 edges = math.cross(e0, e2);
 
-                        if (edges.sqrMagnitude < tinyNumber)
+                        if (math.lengthsq(edges) < tinyNumber)
                         {
                             continue;
                         }
@@ -2510,153 +2632,89 @@ public class BuildAndRunLevel : MonoBehaviour
                         ceilingtri.Add(e + 1);
                         ceilingtri.Add(e + 2);
                     }
-
-                    Plane.Add(i);
-
-                    Portal.Add(-1);
-
-                    if (polygon.CeilingTexture.Collection == 27 || polygon.CeilingTexture.Collection == 28 ||
-                        polygon.CeilingTexture.Collection == 29 || polygon.CeilingTexture.Collection == 30)
-                    {
-                        Render.Add(-1);
-                    }
-                    else
-                    {
-                        Render.Add(i);
-                    }
-
-                    if (polygon.CeilingTexture.Collection == 17)
-                    {
-                        for (int e = 0; e < ceilinguvs.Count; e++)
-                        {
-                            ceilinguvsz.Add(new Vector4(ceilinguvs[e].x, ceilinguvs[e].y, polygon.CeilingTexture.Bitmap, polygon.CeilingLight));
-                        }
-                    }
-                    if (polygon.CeilingTexture.Collection == 18)
-                    {
-                        for (int e = 0; e < ceilinguvs.Count; e++)
-                        {
-                            ceilinguvsz.Add(new Vector4(ceilinguvs[e].x, ceilinguvs[e].y, polygon.CeilingTexture.Bitmap + 30, polygon.CeilingLight));
-                        }
-                    }
-                    if (polygon.CeilingTexture.Collection == 19)
-                    {
-                        for (int e = 0; e < ceilinguvs.Count; e++)
-                        {
-                            ceilinguvsz.Add(new Vector4(ceilinguvs[e].x, ceilinguvs[e].y, polygon.CeilingTexture.Bitmap + 60, polygon.CeilingLight));
-                        }
-                    }
-                    if (polygon.CeilingTexture.Collection == 20)
-                    {
-                        for (int e = 0; e < ceilinguvs.Count; e++)
-                        {
-                            ceilinguvsz.Add(new Vector4(ceilinguvs[e].x, ceilinguvs[e].y, polygon.CeilingTexture.Bitmap + 90, polygon.CeilingLight));
-                        }
-                    }
-                    if (polygon.CeilingTexture.Collection == 21)
-                    {
-                        for (int e = 0; e < ceilinguvs.Count; e++)
-                        {
-                            ceilinguvsz.Add(new Vector4(ceilinguvs[e].x, ceilinguvs[e].y, polygon.CeilingTexture.Bitmap + 125, polygon.CeilingLight));
-                        }
-                    }
-                    if (polygon.CeilingTexture.Collection == 27 || polygon.CeilingTexture.Collection == 28 ||
-                        polygon.CeilingTexture.Collection == 29 || polygon.CeilingTexture.Collection == 30)
-                    {
-                        for (int e = 0; e < ceilinguvs.Count; e++)
-                        {
-                            ceilinguvsz.Add(new Vector4(ceilinguvs[e].x, ceilinguvs[e].y, polygon.CeilingTexture.Bitmap, polygon.CeilingLight));
-                        }
-                    }
-
-                    MeshTexture.Add(polygon.CeilingTexture.Bitmap);
-
-                    MeshTextureCollection.Add(polygon.CeilingTexture.Collection);
-
-                    Collision.Add(i);
-
-                    Transparent.Add(-1);
-
-                    Mesh mesh = new Mesh();
-
-                    mesh.SetVertices(ceilingverts);
-                    mesh.SetUVs(0, ceilinguvsz);
-                    mesh.SetTriangles(ceilingtri, 0);
-                    mesh.RecalculateNormals();
-
-                    meshes.Add(mesh);
                 }
-            }
-        }
-    }
 
-    public void GetVerts(double X0, double X1, double V0, double V1, double Z0, double Z1)
-    {
-        CW.Add(new Vector3((float)X1, (float)V0, (float)Z1));
-        CW.Add(new Vector3((float)X1, (float)V1, (float)Z1));
-        CW.Add(new Vector3((float)X0, (float)V1, (float)Z0));
-        CW.Add(new Vector3((float)X0, (float)V0, (float)Z0));
+                int baseCeiling = LevelLists.vertices.Length;
 
-        LeftPlane = new Plane((CW[2] - CW[1]).normalized, CW[1]);
-        TopPlane = new Plane((CW[1] - CW[0]).normalized, CW[1]);
+                int ceilingRenderIndex = LevelLists.render.Length;
 
-        CWUV.Add(new Vector2(LeftPlane.GetDistanceToPoint(CW[0]) / Scale, TopPlane.GetDistanceToPoint(CW[0]) / Scale));
-        CWUV.Add(new Vector2(LeftPlane.GetDistanceToPoint(CW[1]) / Scale, TopPlane.GetDistanceToPoint(CW[1]) / Scale));
-        CWUV.Add(new Vector2(LeftPlane.GetDistanceToPoint(CW[2]) / Scale, TopPlane.GetDistanceToPoint(CW[2]) / Scale));
-        CWUV.Add(new Vector2(LeftPlane.GetDistanceToPoint(CW[3]) / Scale, TopPlane.GetDistanceToPoint(CW[3]) / Scale));
-    }
+                int ceilingCollideIndex = LevelLists.collide.Length;
 
-    public void MakeSides(Side.TextureDefinition sideDef, int Light)
-    {
-        for (int e = 0; e < CWUV.Count; e++)
-        {
-            CWUVOffset.Add(new Vector2(CWUV[e].x + (float)sideDef.X / 1024,
-            CWUV[e].y + (float)sideDef.Y / 1024 * -1));
+                for (int e = 0; e < ceilingverts.Count; e++)
+                {
+                    LevelLists.vertices.Add(ceilingverts[e]);
+                }
+
+                for (int e = 0; e < ceilingtri.Count; e++)
+                {
+                    LevelLists.collide.Add(baseCeiling + ceilingtri[e]);
+                }
+
+                PolygonMeta smCeiling = new PolygonMeta();
+
+                smCeiling.renderStartIndex = -1;
+                smCeiling.renderCount = -1;
+
+                if (ceilingTexture == 17 || ceilingTexture == 18 || ceilingTexture == 19 || ceilingTexture == 20 || ceilingTexture == 21)
+                {
+                    for (int e = 0; e < ceilingtri.Count; e++)
+                    {
+                        LevelLists.render.Add(baseCeiling + ceilingtri[e]);
+                    }
+
+                    smCeiling.renderStartIndex = ceilingRenderIndex;
+                    smCeiling.renderCount = ceilingtri.Count;
+                }
+
+                for (int e = 0; e < ceilinguvs.Count; e++)
+                {
+                    LevelLists.textures.Add(ceilinguvs[e]);
+                }
+
+                smCeiling.collideStartIndex = ceilingCollideIndex;
+                smCeiling.collideCount = ceilingtri.Count;
+
+                smCeiling.edgeStartIndex = -1;
+                smCeiling.edgeCount = -1;
+
+                smCeiling.connectedSectorId = -1;
+                smCeiling.sectorId = i;
+
+                smCeiling.plane = LevelLists.planes.Length;
+
+                LevelLists.polygons.Add(smCeiling);
+
+                polygonCount += 1;
+
+                float3 c0 = ceilingverts[ceilingtri[0]];
+                float3 c1 = ceilingverts[ceilingtri[1]];
+                float3 c2 = ceilingverts[ceilingtri[2]];
+
+                float3 c = math.normalize(math.cross(c1 - c0, c2 - c0));
+
+                MathematicalPlane planeCeiling = new MathematicalPlane
+                {
+                    normal = c,
+                    distance = -math.dot(c, c0)
+                };
+
+                LevelLists.planes.Add(planeCeiling);
+            }
+
+            SectorMeta sectorMeta = new SectorMeta
+            {
+                sectorId = i,
+                polygonStartIndex = polygonStart,
+                polygonCount = polygonCount,
+                planeStartIndex = 0,
+                planeCount = 4
+            };
+
+            LevelLists.sectors.Add(sectorMeta);
+
+            polygonStart += polygonCount;
         }
 
-        if (sideDef.Texture.Collection == 17)
-        {
-            for (int e = 0; e < CWUVOffset.Count; e++)
-            {
-                CWUVOffsetZ.Add(new Vector4(CWUVOffset[e].x, CWUVOffset[e].y, sideDef.Texture.Bitmap, Light));
-            }
-        }
-        if (sideDef.Texture.Collection == 18)
-        {
-            for (int e = 0; e < CWUVOffset.Count; e++)
-            {
-                CWUVOffsetZ.Add(new Vector4(CWUVOffset[e].x, CWUVOffset[e].y, sideDef.Texture.Bitmap + 30, Light));
-            }
-        }
-        if (sideDef.Texture.Collection == 19)
-        {
-            for (int e = 0; e < CWUVOffset.Count; e++)
-            {
-                CWUVOffsetZ.Add(new Vector4(CWUVOffset[e].x, CWUVOffset[e].y, sideDef.Texture.Bitmap + 60, Light));
-            }
-        }
-        if (sideDef.Texture.Collection == 20)
-        {
-            for (int e = 0; e < CWUVOffset.Count; e++)
-            {
-                CWUVOffsetZ.Add(new Vector4(CWUVOffset[e].x, CWUVOffset[e].y, sideDef.Texture.Bitmap + 90, Light));
-            }
-        }
-        if (sideDef.Texture.Collection == 21)
-        {
-            for (int e = 0; e < CWUVOffset.Count; e++)
-            {
-                CWUVOffsetZ.Add(new Vector4(CWUVOffset[e].x, CWUVOffset[e].y, sideDef.Texture.Bitmap + 125, Light));
-            }
-        }
-
-        if (sideDef.Texture.Collection == 27 || sideDef.Texture.Collection == 28 ||
-            sideDef.Texture.Collection == 29 || sideDef.Texture.Collection == 30)
-        {
-            for (int e = 0; e < CWUVOffset.Count; e++)
-            {
-                CWUVOffsetZ.Add(new Vector4(CWUVOffset[e].x, CWUVOffset[e].y, sideDef.Texture.Bitmap, Light));
-            }
-        }
+        Debug.Log("Level built successfully!");
     }
 }
