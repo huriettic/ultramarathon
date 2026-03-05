@@ -375,6 +375,9 @@ public static class BuildLevelFunctions
 
             var ceilingLight = polygon.CeilingLight;
 
+            double V0 = (float)polygon.CeilingHeight / 1024 * Scale;
+            double V1 = (float)polygon.FloorHeight / 1024 * Scale;
+
             for (int e = 0; e < polygon.VertexCount; e++)
             {
                 int lineIndex = polygon.LineIndexes[e];
@@ -412,9 +415,6 @@ public static class BuildLevelFunctions
 
                 double X0 = (float)level.Endpoints[vB].X / 1024 * Scale;
                 double Z0 = (float)-level.Endpoints[vB].Y / 1024 * Scale;
-
-                double V0 = (float)polygon.CeilingHeight / 1024 * Scale;
-                double V1 = (float)polygon.FloorHeight / 1024 * Scale;
 
                 double L0 = (float)line.LowestAdjacentCeiling / 1024 * Scale;
                 double L1 = (float)line.HighestAdjacentFloor / 1024 * Scale;
@@ -1328,20 +1328,13 @@ public static class BuildLevelFunctions
 
                 for (int e = 0; e < polygon.VertexCount; ++e)
                 {
-                    float YF = (float)polygon.FloorHeight / 1024 * Scale;
-                    float YC = (float)polygon.CeilingHeight / 1024 * Scale;
-                    float X = (float)level.Endpoints[polygon.EndpointIndexes[e]].X / 1024 * Scale;
-                    float Z = (float)level.Endpoints[polygon.EndpointIndexes[e]].Y / 1024 * Scale * -1;
+                    double X = (float)level.Endpoints[polygon.EndpointIndexes[e]].X / 1024 * Scale;
+                    double Z = (float)level.Endpoints[polygon.EndpointIndexes[e]].Y / 1024 * Scale * -1;
 
-                    float YFOX = (float)(level.Endpoints[polygon.EndpointIndexes[e]].X + polygon.FloorOrigin.X) / 1024 * -1;
-                    float YFOY = (float)(level.Endpoints[polygon.EndpointIndexes[e]].Y + polygon.FloorOrigin.Y) / 1024;
-                    float YCOX = (float)(level.Endpoints[polygon.EndpointIndexes[e]].X + polygon.CeilingOrigin.X) / 1024 * -1;
-                    float YCOY = (float)(level.Endpoints[polygon.EndpointIndexes[e]].Y + polygon.CeilingOrigin.Y) / 1024;
-
-                    floorvertices.Add(new float3(X, YF, Z));
-                    floortextures.Add(new float4(YFOY, YFOX, floorBit + floorTextureCount, floorLight));
-                    ceilingvertices.Add(new float3(X, YC, Z));
-                    ceilingtextures.Add(new float4(YCOY, YCOX, ceilingBit + ceilingTextureCount, ceilingLight));
+                    floorvertices.Add(new float3((float)X, (float)V1, (float)Z));
+                    floortextures.Add(new float4((float)(level.Endpoints[polygon.EndpointIndexes[e]].Y + polygon.FloorOrigin.Y) / 1024, (float)(level.Endpoints[polygon.EndpointIndexes[e]].X + polygon.FloorOrigin.X) / 1024 * -1, floorBit + floorTextureCount, floorLight));
+                    ceilingvertices.Add(new float3((float)X, (float)V0, (float)Z));
+                    ceilingtextures.Add(new float4((float)(level.Endpoints[polygon.EndpointIndexes[e]].Y + polygon.CeilingOrigin.Y) / 1024, (float)(level.Endpoints[polygon.EndpointIndexes[e]].X + polygon.CeilingOrigin.X) / 1024 * -1, ceilingBit + ceilingTextureCount, ceilingLight));
                 }
 
                 if (floorvertices.Count > 2)
