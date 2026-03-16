@@ -128,7 +128,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 36560392}
-  - component: {fileID: 36560391}
+  - component: {fileID: 36560393}
   m_Layer: 0
   m_Name: Debug Script
   m_TagString: Untagged
@@ -136,21 +136,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 0
---- !u!114 &36560391
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 36560390}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9e8eabe54df1d9d458b5b52c563b7bfe, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Name: Hyper Cube
-  Textures: Textures
-  LevelNumber: 0
 --- !u!4 &36560392
 Transform:
   m_ObjectHideFlags: 0
@@ -166,6 +151,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &36560393
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 36560390}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e8eabe54df1d9d458b5b52c563b7bfe, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  levelName: Hyper Cube
+  texturesName: Textures
+  shapesName: Shapes
+  levelNumber: 0
 --- !u!1 &491406251
 GameObject:
   m_ObjectHideFlags: 0
@@ -422,7 +423,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2139097207}
-  - component: {fileID: 2139097210}
+  - component: {fileID: 2139097208}
   m_Layer: 0
   m_Name: Game Script
   m_TagString: Untagged
@@ -445,7 +446,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2139097210
+--- !u!114 &2139097208
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -457,9 +458,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a8d6fe16e188b4a4a937add7f4a5f5d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  Name: Hyper Cube
-  Textures: Textures
-  LevelNumber: 0
+  levelName: Hyper Cube
+  texturesName: Textures
+  shapesName: Shapes
+  levelNumber: 0
   speed: 7
   jumpHeight: 2
   gravity: 5

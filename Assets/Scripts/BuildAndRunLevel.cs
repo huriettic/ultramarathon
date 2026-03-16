@@ -8,13 +8,13 @@ using Weland;
 
 public class BuildAndRunLevel : MonoBehaviour
 {
-    public string Name = "Hyper Cube";
+    public string levelName = "Hyper Cube";
 
-    public string Textures = "Textures";
+    public string texturesName = "Textures";
 
-    public Level level;
+    public string shapesName = "Shapes";
 
-    public int LevelNumber;
+    public int levelNumber;
 
     public float speed = 7f;
     public float jumpHeight = 2f;
@@ -27,6 +27,10 @@ public class BuildAndRunLevel : MonoBehaviour
     float3 currentForce;
     float2 currentRotation;
     float3 targetMovement;
+
+    Level level;
+
+    Texture2DArray textureArray;
 
     GraphicsBuffer triBuffer;
 
@@ -286,7 +290,9 @@ public class BuildAndRunLevel : MonoBehaviour
 
         CollisionObjects = new GameObject("Collision Meshes");
 
-        level = LoadLevel(Name, LevelNumber);
+        textureArray = BuildTextureArray(shapesName);
+
+        level = LoadLevel(levelName, levelNumber);
 
         BuildLights(LevelLists.colors, level);
 
@@ -296,7 +302,7 @@ public class BuildAndRunLevel : MonoBehaviour
 
         LightColor = new Color[LevelLists.colors.Length];
 
-        opaquematerial = CreateMaterial(LevelLists.colors, LightColor, Textures);
+        opaquematerial = CreateMaterial(LevelLists.colors, LightColor, texturesName, textureArray);
 
         BuildColliders(LevelLists.vertices, LevelLists.collide, LevelLists.sectors, LevelLists.polygons, CollisionSectors, CollisionObjects);
 

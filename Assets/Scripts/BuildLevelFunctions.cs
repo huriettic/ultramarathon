@@ -70,7 +70,105 @@ public static class BuildLevelFunctions
         return currentSector;
     }
 
-    public static Material CreateMaterial(NativeList<LevelLight> colors, Color[] LightColor, String Textures)
+    public static Texture2DArray BuildTextureArray(String shapesName)
+    {
+        const int WALL_SIZE = 128;
+        const int BLANK_COUNT = 35;
+
+        string path = Path.Combine(Application.streamingAssetsPath, shapesName + ".shpA");
+
+        if (!File.Exists(path))
+        {
+            Debug.LogError("Shapes file not found: " + path);
+            return null;
+        }
+
+        ShapesFile shapes = new ShapesFile();
+
+        shapes.Load(path);
+
+        List<Texture2D> finalList = new List<Texture2D>();
+
+        void LoadCollection(int c)
+        {
+            Collection coll = shapes.GetCollection(c);
+
+            if (coll == null || coll.Type != CollectionType.Wall)
+            {
+                return;
+            }
+
+            for (byte clut = 0; clut < coll.ColorTableCount; clut++)
+            {
+                for (byte bmp = 0; bmp < coll.BitmapCount; bmp++)
+                {
+                    Texture2D tex = coll.GetShape(clut, bmp);
+
+                    if (tex == null)
+                    {
+                        continue;
+                    }
+
+                    if (tex.width != WALL_SIZE || tex.height != WALL_SIZE)
+                    {
+                        continue;
+                    }
+
+                    finalList.Add(tex);
+                }
+            }
+        }
+
+        LoadCollection(17);
+        LoadCollection(18);
+        LoadCollection(19);
+
+        Collection coll20 = shapes.GetCollection(20);
+
+        if (coll20 == null || coll20.BitmapCount == 0)
+        {
+            Debug.Log("Collection 20 missing — inserting 35 blank textures.");
+
+            for (int i = 0; i < BLANK_COUNT; i++)
+            {
+                Texture2D blank = new Texture2D(WALL_SIZE, WALL_SIZE, TextureFormat.RGBA32, false);
+
+                Color[] pixels = new Color[WALL_SIZE * WALL_SIZE];
+                for (int p = 0; p < pixels.Length; p++)
+                {
+                    pixels[p] = Color.clear;
+                }
+
+                blank.SetPixels(pixels);
+                blank.Apply();
+
+                finalList.Add(blank);
+            }
+        }
+        else
+        {
+            LoadCollection(20);
+        }
+
+        LoadCollection(21);
+
+        Debug.Log($"Final texture count: {finalList.Count}");
+
+        Texture2DArray textureArray = new Texture2DArray(WALL_SIZE, WALL_SIZE, finalList.Count, TextureFormat.RGBA32, false);
+
+        for (int i = 0; i < finalList.Count; i++)
+        {
+            textureArray.SetPixels(finalList[i].GetPixels(), i);
+        }
+
+        textureArray.Apply();
+
+        Debug.Log("Liquid Texture2DArray built successfully.");
+
+        return textureArray;
+    }
+
+    public static Material CreateMaterial(NativeList<LevelLight> colors, Color[] LightColor, String Textures, Texture2DArray texArray)
     {
         Shader shader = Resources.Load<Shader>("TriangleTexArray");
 
@@ -81,7 +179,14 @@ public static class BuildLevelFunctions
 
         Material opaquematerial = new Material(shader);
 
-        opaquematerial.mainTexture = Resources.Load<Texture2DArray>(Textures);
+        if (texArray != null)
+        {
+            opaquematerial.mainTexture = texArray;
+        }
+        else
+        {
+            opaquematerial.mainTexture = Resources.Load<Texture2DArray>(Textures);
+        }
 
         opaquematerial.SetColorArray("_ColorArray", LightColor);
 

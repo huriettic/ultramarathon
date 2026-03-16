@@ -1,22 +1,26 @@
-using static BuildLevelFunctions;
+using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
-using System;
 using Weland;
+using static BuildLevelFunctions;
 
 public class BuildLevel : MonoBehaviour
 {
-    public string Name = "Hyper Cube";
+    public string levelName = "Hyper Cube";
 
-    public string Textures = "Textures";
+    public string texturesName = "Textures";
 
-    public Level level;
+    public string shapesName = "Shapes";
 
-    public int LevelNumber;
+    public int levelNumber;
 
     public TopLevelLists LevelLists;
+
+    Texture2DArray textureArray;
+
+    Level level;
 
     float Scale = 2.5f;
 
@@ -70,7 +74,9 @@ public class BuildLevel : MonoBehaviour
 
         collisionObject = new GameObject("Collision");
 
-        level = LoadLevel(Name, LevelNumber);
+        textureArray = BuildTextureArray(shapesName);
+
+        level = LoadLevel(levelName, levelNumber);
 
         BuildLights(LevelLists.colors, level);
 
@@ -93,7 +99,14 @@ public class BuildLevel : MonoBehaviour
 
         opaquematerial = new Material(shader);
 
-        opaquematerial.mainTexture = Resources.Load<Texture2DArray>(Textures);
+        if (textureArray != null)
+        {
+            opaquematerial.mainTexture = textureArray;
+        }
+        else
+        {
+            opaquematerial.mainTexture = Resources.Load<Texture2DArray>(texturesName);
+        }
 
         opaquematerial.SetColorArray("_ColorArray", LightColor);
 
