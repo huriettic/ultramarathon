@@ -70,11 +70,38 @@ public static class BuildLevelFunctions
         return currentSector;
     }
 
+    public static void LoadCollection(int c, ShapesFile shapes, List<Texture2D> finalList)
+    {
+        Collection coll = shapes.GetCollection(c);
+
+        if (coll == null || coll.Type != CollectionType.Wall)
+        {
+            return;
+        }
+
+        for (byte clut = 0; clut < coll.ColorTableCount; clut++)
+        {
+            for (byte bmp = 0; bmp < coll.BitmapCount; bmp++)
+            {
+                Texture2D tex = coll.GetShape(clut, bmp);
+
+                if (tex == null)
+                {
+                    continue;
+                }
+
+                if (tex.width != 128 || tex.height != 128)
+                {
+                    continue;
+                }
+
+                finalList.Add(tex);
+            }
+        }
+    }
+
     public static Texture2DArray BuildTextureArray(String shapesName)
     {
-        const int WALL_SIZE = 128;
-        const int BLANK_COUNT = 35;
-
         string path = Path.Combine(Application.streamingAssetsPath, shapesName + ".shpA");
 
         if (!File.Exists(path))
@@ -89,39 +116,9 @@ public static class BuildLevelFunctions
 
         List<Texture2D> finalList = new List<Texture2D>();
 
-        void LoadCollection(int c)
-        {
-            Collection coll = shapes.GetCollection(c);
-
-            if (coll == null || coll.Type != CollectionType.Wall)
-            {
-                return;
-            }
-
-            for (byte clut = 0; clut < coll.ColorTableCount; clut++)
-            {
-                for (byte bmp = 0; bmp < coll.BitmapCount; bmp++)
-                {
-                    Texture2D tex = coll.GetShape(clut, bmp);
-
-                    if (tex == null)
-                    {
-                        continue;
-                    }
-
-                    if (tex.width != WALL_SIZE || tex.height != WALL_SIZE)
-                    {
-                        continue;
-                    }
-
-                    finalList.Add(tex);
-                }
-            }
-        }
-
-        LoadCollection(17);
-        LoadCollection(18);
-        LoadCollection(19);
+        LoadCollection(17, shapes, finalList);
+        LoadCollection(18, shapes, finalList);
+        LoadCollection(19, shapes, finalList);
 
         Collection coll20 = shapes.GetCollection(20);
 
@@ -129,11 +126,11 @@ public static class BuildLevelFunctions
         {
             Debug.Log("Collection 20 missing — inserting 35 blank textures.");
 
-            for (int i = 0; i < BLANK_COUNT; i++)
+            for (int i = 0; i < 35; i++)
             {
-                Texture2D blank = new Texture2D(WALL_SIZE, WALL_SIZE, TextureFormat.RGBA32, false);
+                Texture2D blank = new Texture2D(128, 128, TextureFormat.RGBA32, false);
 
-                Color[] pixels = new Color[WALL_SIZE * WALL_SIZE];
+                Color[] pixels = new Color[128 * 128];
                 for (int p = 0; p < pixels.Length; p++)
                 {
                     pixels[p] = Color.clear;
@@ -147,14 +144,14 @@ public static class BuildLevelFunctions
         }
         else
         {
-            LoadCollection(20);
+            LoadCollection(20, shapes, finalList);
         }
 
-        LoadCollection(21);
+        LoadCollection(21, shapes, finalList);
 
         Debug.Log($"Final texture count: {finalList.Count}");
 
-        Texture2DArray textureArray = new Texture2DArray(WALL_SIZE, WALL_SIZE, finalList.Count, TextureFormat.RGBA32, false);
+        Texture2DArray textureArray = new Texture2DArray(128, 128, finalList.Count, TextureFormat.RGBA32, false);
 
         for (int i = 0; i < finalList.Count; i++)
         {
@@ -163,7 +160,7 @@ public static class BuildLevelFunctions
 
         textureArray.Apply();
 
-        Debug.Log("Liquid Texture2DArray built successfully.");
+        Debug.Log("Texture2DArray built successfully.");
 
         return textureArray;
     }
