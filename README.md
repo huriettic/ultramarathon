@@ -8,6 +8,18 @@ I'm trying to create new features for Ultra Marathon.
 
 
 
+You can load shapes file textures now.
+
+
+
+Put a shapes file in the streaming assets folder.
+
+
+
+It will use placeholder textures if you don't add a shapes file.
+
+
+
 ## Third-Party Code
 
 This project uses the following third-party code:
