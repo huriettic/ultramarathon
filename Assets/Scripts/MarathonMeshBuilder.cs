@@ -1,3 +1,9 @@
+/*
+ * This file is a modified version of OBJExporter from Weland.
+ * Modifications made by huriettic on 2026-03-15.
+ * Original code licensed under the GPL.
+ */
+
 using System;
 using System.Collections.Generic;
 using System.IO;
